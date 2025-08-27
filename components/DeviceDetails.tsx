@@ -1,17 +1,20 @@
 
 import React, { useState, useEffect } from 'react';
-import { Device, Block } from '../types';
+import { Device, Block, AppSettings } from '../types';
 import HistoryItem from './HistoryItem';
 import BlockDetailsModal from './BlockDetailsModal';
 import VerificationModal, { VerificationResult } from './VerificationModal';
 import AddDeviceModal from './AddDeviceModal';
 import Loader from './Loader';
 import { verifyChain } from '../utils/crypto';
+import { toast } from 'react-hot-toast';
+import { DownloadIcon } from './AIIcons';
 
 interface DeviceDetailsProps {
   device: Device;
   allDevices: Device[];
   chain: Block[];
+  settings: AppSettings;
   onBack: () => void;
   onAddConfiguration: (deviceId: string, newConfig: string, operator: string) => void;
   onSelectDevice: (device: Device) => void;
@@ -32,7 +35,7 @@ const PlusIcon: React.FC = () => (
 );
 
 
-const DeviceDetails: React.FC<DeviceDetailsProps> = ({ device, allDevices, chain, onBack, onAddConfiguration, onSelectDevice, onAddNewDevice, isLoading }) => {
+const DeviceDetails: React.FC<DeviceDetailsProps> = ({ device, allDevices, chain, settings, onBack, onAddConfiguration, onSelectDevice, onAddNewDevice, isLoading }) => {
   const lastBlock = chain[chain.length - 1];
   const [newConfig, setNewConfig] = useState(lastBlock?.data?.config || '');
   const [operator, setOperator] = useState('net_admin');
@@ -42,6 +45,8 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({ device, allDevices, chain
   const [isVerificationModalOpen, setIsVerificationModalOpen] = useState(false);
   const [verificationResults, setVerificationResults] = useState<VerificationResult[]>([]);
   const [isAddDeviceModalOpen, setIsAddDeviceModalOpen] = useState(false);
+  const [isFetchingConfig, setIsFetchingConfig] = useState(false);
+
 
   useEffect(() => {
     // When the device changes, update the config textarea with the latest config of the new device
@@ -49,9 +54,61 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({ device, allDevices, chain
     setNewConfig(newLastBlock?.data?.config || '');
   }, [device, chain]);
 
+  const handleFetchFromDevice = async () => {
+    if (!settings.agentApiUrl) {
+      toast.error('请先在设置中配置本地代理API地址。');
+      return;
+    }
+    setIsFetchingConfig(true);
+    const toastId = toast.loading(`正在从 ${device.name} 获取配置...`);
+    try {
+      const url = `${settings.agentApiUrl}/api/device/${device.id}/config`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({'error': '无法解析错误响应'}));
+        throw new Error(errorData.error || `网络响应错误: ${response.statusText}`);
+      }
+      const data = await response.json();
+      setNewConfig(data.config);
+      toast.success('配置已成功获取！', { id: toastId });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '发生未知错误';
+      toast.error(`获取配置失败: ${errorMessage}`, { id: toastId });
+    } finally {
+      setIsFetchingConfig(false);
+    }
+  };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    // If agent is configured, push to device first
+    if (settings.agentApiUrl) {
+        const isConfirmed = window.confirm(`您确定要将此配置推送到真实设备 ${device.name} 吗？`);
+        if (!isConfirmed) {
+            return;
+        }
+        
+        const toastId = toast.loading(`正在将配置推送到 ${device.name}...`);
+        try {
+            const url = `${settings.agentApiUrl}/api/device/${device.id}/config`;
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ config: newConfig }),
+            });
+
+            if (!response.ok) {
+                 const errorData = await response.json().catch(() => ({'error': '无法解析错误响应'}));
+                throw new Error(errorData.error || `网络响应错误: ${response.statusText}`);
+            }
+            toast.success('配置已成功推送到设备！正在记录到区块链...', { id: toastId });
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : '发生未知错误';
+            toast.error(`推送到设备失败: ${errorMessage}。变更未记录到区块链。`, { id: toastId, duration: 6000 });
+            return; // Stop execution if push fails
+        }
+    }
+
     onAddConfiguration(device.id, newConfig, operator);
   };
   
@@ -167,7 +224,20 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({ device, allDevices, chain
               />
             </div>
             <div className="mb-4">
-              <label htmlFor="config" className="block text-sm font-medium text-slate-300 mb-2">配置文本</label>
+               <div className="flex justify-between items-center mb-2">
+                 <label htmlFor="config" className="block text-sm font-medium text-slate-300">配置文本</label>
+                 {settings.agentApiUrl && (
+                     <button
+                        type="button"
+                        onClick={handleFetchFromDevice}
+                        disabled={isFetchingConfig || isLoading}
+                        className="flex items-center gap-2 text-xs bg-slate-700 hover:bg-slate-600 disabled:bg-slate-900 disabled:text-slate-500 disabled:cursor-not-allowed text-white font-bold py-1 px-3 rounded-md transition-colors"
+                     >
+                        {isFetchingConfig ? <Loader /> : <DownloadIcon />}
+                        <span>从设备获取</span>
+                     </button>
+                 )}
+               </div>
               <textarea
                 id="config"
                 rows={15}
@@ -179,10 +249,10 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({ device, allDevices, chain
             </div>
             <button
               type="submit"
-              disabled={isLoading || isVerifying}
+              disabled={isLoading || isVerifying || isFetchingConfig}
               className="w-full flex justify-center items-center gap-2 bg-cyan-600 hover:bg-cyan-700 disabled:bg-slate-600 text-white font-bold py-2 px-4 rounded-md transition-colors"
             >
-              {isLoading ? <Loader /> : '提交到区块链'}
+              {isLoading ? <Loader /> : (settings.agentApiUrl ? '推送到设备并记录' : '提交到区块链')}
             </button>
           </form>
         </div>

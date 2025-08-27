@@ -1,4 +1,3 @@
-
 export interface Device {
   id: string;
   name: string;
@@ -29,4 +28,5 @@ export interface Block {
 export interface AppSettings {
   aiEnabled: boolean;
   analysisApiUrl?: string;
+  agentApiUrl?: string;
 }

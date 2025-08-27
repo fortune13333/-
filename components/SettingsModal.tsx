@@ -1,6 +1,9 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { AppSettings } from '../types';
+// FIX: Import Loader from its own module, not from AIIcons.
+import Loader from './Loader';
+import { CheckCircleSolid, XCircleSolid } from './AIIcons';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -10,10 +13,39 @@ interface SettingsModalProps {
 }
 
 const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings, onUpdateSettings }) => {
+  const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'failure'>('idle');
+  
   if (!isOpen) return null;
 
   const handleToggleAI = () => {
     onUpdateSettings({ aiEnabled: !settings.aiEnabled });
+  };
+
+  const handleTestConnection = async () => {
+      if (!settings.agentApiUrl) {
+          setTestStatus('failure');
+          return;
+      }
+      setTestStatus('testing');
+      await new Promise(resolve => setTimeout(resolve, 500)); // For UX
+      try {
+          const url = new URL('/api/health', settings.agentApiUrl).toString();
+          const response = await fetch(url, { method: 'GET' });
+
+          if (!response.ok) {
+              throw new Error(`HTTP error! status: ${response.status}`);
+          }
+          
+          const data = await response.json();
+          if (data && data.status === 'ok') {
+              setTestStatus('success');
+          } else {
+              throw new Error('Invalid response from agent');
+          }
+      } catch (error) {
+          console.error("Agent connection test failed:", error);
+          setTestStatus('failure');
+      }
   };
 
   return (
@@ -66,6 +98,40 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
               />
               <p className="text-xs text-slate-500 mt-2">
                 自定义接口需接受含 `previousConfig` 和 `newConfig` 的POST请求，并返回兼容的JSON。
+              </p>
+          </div>
+          <div className="bg-slate-900/50 p-4 rounded-md">
+              <h4 className="font-semibold text-slate-200 mb-2">本地代理接口</h4>
+               <p className="text-sm text-slate-400 mb-3">
+                （可选）输入本地代理的API地址以连接真实设备。
+              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  placeholder="http://localhost:8000"
+                  value={settings.agentApiUrl || ''}
+                  onChange={(e) => {
+                    onUpdateSettings({ agentApiUrl: e.target.value });
+                    setTestStatus('idle');
+                  }}
+                  className="flex-grow bg-slate-900 border border-slate-700 rounded-md p-2 text-slate-200 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={handleTestConnection}
+                  disabled={testStatus === 'testing'}
+                  className="flex-shrink-0 bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 px-3 rounded-md transition-colors text-sm disabled:opacity-50 disabled:cursor-wait"
+                >
+                  测试连接
+                </button>
+              </div>
+              <div className="mt-2 h-5 flex items-center gap-2 text-xs">
+                {testStatus === 'testing' && <> <Loader /> <span className="text-slate-400">正在测试...</span> </>}
+                {testStatus === 'success' && <> <CheckCircleSolid className="h-4 w-4 text-green-500" /> <span className="text-green-400">连接成功！</span> </>}
+                {testStatus === 'failure' && <> <XCircleSolid className="h-4 w-4 text-red-500" /> <span className="text-red-400">连接失败。请检查地址和代理状态。</span> </>}
+              </div>
+              <p className="text-xs text-slate-500 mt-2">
+                代理需提供 `GET /api/health`, `GET /api/device/:id/config` 和 `POST /api/device/:id/config` 接口。
               </p>
           </div>
         </div>

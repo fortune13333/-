@@ -13,6 +13,7 @@ import { calculateBlockHash } from './utils/crypto';
 const DEFAULT_SETTINGS: AppSettings = {
   aiEnabled: true,
   analysisApiUrl: '',
+  agentApiUrl: '',
 };
 
 const App: React.FC = () => {
@@ -192,6 +193,7 @@ const App: React.FC = () => {
             device={selectedDevice} 
             allDevices={devices}
             chain={blockchains[selectedDevice.id] || []}
+            settings={settings}
             onBack={handleBackToDashboard}
             onAddConfiguration={handleAddConfiguration}
             onSelectDevice={handleSelectDevice}
