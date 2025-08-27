@@ -1,9 +1,9 @@
-
 import React, { useState } from 'react';
 import { AppSettings } from '../types';
 // FIX: Import Loader from its own module, not from AIIcons.
 import Loader from './Loader';
 import { CheckCircleSolid, XCircleSolid } from './AIIcons';
+import { toast } from 'react-hot-toast';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -23,6 +23,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
 
   const handleTestConnection = async () => {
       if (!settings.agentApiUrl) {
+          toast.error('代理API地址不能为空。');
           setTestStatus('failure');
           return;
       }
@@ -33,17 +34,20 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
           const response = await fetch(url, { method: 'GET' });
 
           if (!response.ok) {
-              throw new Error(`HTTP error! status: ${response.status}`);
+              throw new Error(`网络响应错误: ${response.status} ${response.statusText}`);
           }
           
           const data = await response.json();
           if (data && data.status === 'ok') {
               setTestStatus('success');
+              toast.success('代理连接成功！');
           } else {
-              throw new Error('Invalid response from agent');
+              throw new Error('来自代理的响应无效');
           }
       } catch (error) {
           console.error("Agent connection test failed:", error);
+          const errorMessage = error instanceof Error ? error.message : '未知网络错误';
+          toast.error(`代理连接测试失败: ${errorMessage}。请检查代理程序是否正在运行且地址正确。`);
           setTestStatus('failure');
       }
   };

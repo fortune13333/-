@@ -1,0 +1,85 @@
+@echo off
+title ChainTrace Agent Builder
+
+echo =======================================================
+echo.
+echo    ChainTrace Agent .EXE Builder
+echo.
+echo =======================================================
+echo.
+echo This script will package agent.py into a single executable file (agent.exe)
+echo using PyInstaller. The result will be in the 'dist' folder.
+echo.
+
+REM Check for Python
+python --version >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [ERROR] Python not found. Please install Python 3.7+ and ensure it's in your PATH.
+    pause
+    exit /b
+)
+
+REM Check for pip
+pip --version >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [ERROR] pip not found. Please ensure your Python installation includes pip.
+    pause
+    exit /b
+)
+
+echo [Step 1/3] Checking for PyInstaller...
+pip show pyinstaller >nul 2>&1
+if %errorlevel% neq 0 (
+    echo PyInstaller not found. Installing it now...
+    pip install pyinstaller
+    if %errorlevel% neq 0 (
+        echo [ERROR] Failed to install PyInstaller. Please check your internet connection and pip setup.
+        pause
+        exit /b
+    )
+    echo PyInstaller installed successfully.
+) else (
+    echo PyInstaller is already installed.
+)
+echo.
+
+echo [Step 2/3] Checking for agent.py...
+if not exist "agent.py" (
+    echo [ERROR] agent.py not found in the current directory.
+    echo Please make sure this script is in the same folder as agent.py.
+    pause
+    exit /b
+)
+echo agent.py found.
+echo.
+
+echo [Step 3/3] Running PyInstaller to build agent.exe...
+echo This may take a few minutes.
+echo.
+
+pyinstaller --onefile --name agent agent.py
+
+echo.
+if exist "dist\agent.exe" (
+    echo =======================================================
+    echo.
+    echo    BUILD SUCCESSFUL!
+    echo.
+    echo    You can find agent.exe inside the 'dist' folder.
+    echo.
+    echo    To distribute, copy 'dist\agent.exe' and 'config.ini'
+    echo    into a new folder for the end user.
+    echo.
+    echo =======================================================
+) else (
+    echo =======================================================
+    echo.
+    echo    BUILD FAILED.
+    echo.
+    echo    Please review the output above for errors.
+    echo.
+    echo =======================================================
+)
+
+echo.
+pause

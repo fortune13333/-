@@ -1,14 +1,12 @@
-
 import React, { useState, useEffect } from 'react';
 import { Device, Block, AppSettings } from '../types';
 import HistoryItem from './HistoryItem';
 import BlockDetailsModal from './BlockDetailsModal';
 import VerificationModal, { VerificationResult } from './VerificationModal';
-import AddDeviceModal from './AddDeviceModal';
 import Loader from './Loader';
 import { verifyChain } from '../utils/crypto';
 import { toast } from 'react-hot-toast';
-import { DownloadIcon } from './AIIcons';
+import { DownloadIcon, PlusIcon } from './AIIcons';
 
 interface DeviceDetailsProps {
   device: Device;
@@ -18,7 +16,7 @@ interface DeviceDetailsProps {
   onBack: () => void;
   onAddConfiguration: (deviceId: string, newConfig: string, operator: string) => void;
   onSelectDevice: (device: Device) => void;
-  onAddNewDevice: (deviceData: Omit<Device, 'ipAddress'> & { ipAddress: string }) => void;
+  onOpenAddDeviceModal: () => void;
   isLoading: boolean;
 }
 
@@ -28,14 +26,7 @@ const ShieldCheckIcon: React.FC = () => (
   </svg>
 );
 
-const PlusIcon: React.FC = () => (
-    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-        <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
-    </svg>
-);
-
-
-const DeviceDetails: React.FC<DeviceDetailsProps> = ({ device, allDevices, chain, settings, onBack, onAddConfiguration, onSelectDevice, onAddNewDevice, isLoading }) => {
+const DeviceDetails: React.FC<DeviceDetailsProps> = ({ device, allDevices, chain, settings, onBack, onAddConfiguration, onSelectDevice, onOpenAddDeviceModal, isLoading }) => {
   const lastBlock = chain[chain.length - 1];
   const [newConfig, setNewConfig] = useState(lastBlock?.data?.config || '');
   const [operator, setOperator] = useState('net_admin');
@@ -44,7 +35,6 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({ device, allDevices, chain
   const [isVerifying, setIsVerifying] = useState(false);
   const [isVerificationModalOpen, setIsVerificationModalOpen] = useState(false);
   const [verificationResults, setVerificationResults] = useState<VerificationResult[]>([]);
-  const [isAddDeviceModalOpen, setIsAddDeviceModalOpen] = useState(false);
   const [isFetchingConfig, setIsFetchingConfig] = useState(false);
 
 
@@ -185,7 +175,7 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({ device, allDevices, chain
                     ))}
                 </select>
                 <button
-                    onClick={() => setIsAddDeviceModalOpen(true)}
+                    onClick={onOpenAddDeviceModal}
                     className="flex-shrink-0 bg-slate-700 hover:bg-cyan-600/50 text-slate-300 hover:text-cyan-300 font-medium p-2 rounded-md transition-colors duration-200"
                     aria-label="添加新设备"
                     title="添加新设备"
@@ -268,14 +258,6 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({ device, allDevices, chain
             chain={chain}
             onClose={() => setIsVerificationModalOpen(false)}
             isVerifying={isVerifying}
-        />
-      )}
-        
-      {isAddDeviceModalOpen && (
-        <AddDeviceModal
-            isOpen={isAddDeviceModalOpen}
-            onClose={() => setIsAddDeviceModalOpen(false)}
-            onAddDevice={onAddNewDevice}
         />
       )}
     </div>

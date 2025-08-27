@@ -1,0 +1,43 @@
+# 链踪本地代理配置文件 (ChainTrace Local Agent Configuration)
+#
+# ⭐ 重要提示 (IMPORTANT NOTE) ⭐
+# 编辑和保存此文件时，请务必使用 "UTF-8" 编码，否则包含中文字符的注释可能会导致程序启动失败！
+# When editing and saving this file, you MUST use "UTF-8" encoding, otherwise comments with 
+# Chinese characters may cause the program to fail on startup!
+
+[server]
+# (可选) 配置代理服务监听的IP地址和端口。
+# (Optional) Configure the IP address and port for the agent service to listen on.
+host = 127.0.0.1
+port = 8000
+
+[credentials]
+# (必需) 用于通过SSH登录网络设备的凭据。
+# (Required) Credentials for logging into network devices via SSH.
+username = your_username
+password = your_password
+# secret = your_enable_password  ; (可选) 如果您的设备需要'enable'密码，请取消此行的注释并填写。 / (Optional) Uncomment and fill this if your device requires an 'enable' password.
+
+# ⭐ 如何使用模拟模式？(How to use Simulation Mode?) ⭐
+# 如果您想在没有真实硬件的情况下测试应用，只需将用户名设置为 SIM_USER。
+# To test the application without real hardware, simply set the username to SIM_USER.
+# 例 (e.g.): username = SIM_USER
+
+[device_map]
+# (必需) 将Web应用中的设备ID映射到真实设备的IP地址和Netmiko设备类型。
+# (Required) Map the Device ID from the web application to the real device's IP address and Netmiko device type.
+#
+# 格式 (Format): 
+# WEB应用中的设备ID = IP地址, Netmiko设备类型
+# DeviceID_in_WebApp = IP_Address, Netmiko_Device_Type
+#
+# 完整的Netmiko支持类型列表见 (For a full list of supported Netmiko types, see):
+# https://github.com/ktbyers/netmiko/blob/develop/README.md#supports
+#
+# 示例 (Examples):
+RTR01-NYC = 192.168.1.1, cisco_ios
+SW01-SFO = 10.10.5.254, cisco_ios
+FW01-LON = 203.0.113.1, cisco_asa
+
+# 在此行下方添加您的新设备 (Add your new devices below this line)
+# CORE-SW-BEIJING = 10.0.0.1, huawei_vrp

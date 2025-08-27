@@ -1,6 +1,6 @@
-
 import React from 'react';
 import { Device, Block } from '../types';
+import { TrashIcon, PlusIcon } from './AIIcons';
 
 interface DashboardProps {
   devices: Device[];
@@ -8,6 +8,8 @@ interface DashboardProps {
   onSelectDevice: (device: Device) => void;
   isLoading: boolean;
   onResetData: () => void;
+  onDeleteDevice: (deviceId: string) => void;
+  onOpenAddDeviceModal: () => void;
 }
 
 const DeviceIcon: React.FC<{ type: Device['type'] }> = ({ type }) => {
@@ -40,22 +42,52 @@ const SkeletonCard: React.FC = () => (
   </div>
 );
 
-const Dashboard: React.FC<DashboardProps> = ({ devices, blockchains, onSelectDevice, isLoading, onResetData }) => {
+const Dashboard: React.FC<DashboardProps> = ({ devices, blockchains, onSelectDevice, isLoading, onResetData, onDeleteDevice, onOpenAddDeviceModal }) => {
+  
+  const handleDelete = (e: React.MouseEvent, deviceId: string, deviceName: string) => {
+    e.stopPropagation(); // Prevent card click event from firing
+    const isConfirmed = window.confirm(`您确定要删除设备 "${deviceName}" 及其所有配置历史吗？此操作不可撤销。`);
+    if (isConfirmed) {
+      onDeleteDevice(deviceId);
+    }
+  };
+
   return (
     <div>
-      <div className="flex justify-between items-center mb-6 border-b-2 border-slate-700 pb-2">
+      <div className="flex justify-between items-center mb-6 border-b-2 border-slate-700 pb-2 gap-4">
         <h2 className="text-3xl font-bold text-white">受管设备</h2>
-        <button
-          onClick={onResetData}
-          className="text-sm bg-slate-700 hover:bg-red-600/50 text-slate-300 hover:text-red-300 font-medium py-1 px-3 rounded-md transition-colors duration-200"
-        >
-          重置为初始数据
-        </button>
+        <div className="flex items-center gap-2">
+            <button
+              onClick={onOpenAddDeviceModal}
+              className="flex items-center gap-2 text-sm bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-3 rounded-md transition-colors duration-200"
+            >
+              <PlusIcon />
+              <span>添加新设备</span>
+            </button>
+            <button
+              onClick={onResetData}
+              className="text-sm bg-slate-700 hover:bg-red-600/50 text-slate-300 hover:text-red-300 font-medium py-2 px-3 rounded-md transition-colors duration-200"
+            >
+              重置数据
+            </button>
+        </div>
       </div>
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {[...Array(3)].map((_, i) => <SkeletonCard key={i} />)}
         </div>
+      ) : devices.length === 0 ? (
+          <div className="text-center py-20 bg-slate-800 rounded-lg">
+              <h3 className="text-xl font-semibold text-white">未找到任何设备</h3>
+              <p className="text-slate-400 mt-2 mb-6">开始您的链踪之旅，请先添加您的第一个网络设备。</p>
+              <button
+                onClick={onOpenAddDeviceModal}
+                className="flex items-center gap-2 text-sm bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-4 rounded-md transition-colors duration-200 mx-auto"
+              >
+                <PlusIcon />
+                <span>添加第一个设备</span>
+              </button>
+          </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {devices.map(device => {
@@ -64,8 +96,16 @@ const Dashboard: React.FC<DashboardProps> = ({ devices, blockchains, onSelectDev
               <div 
                 key={device.id}
                 onClick={() => onSelectDevice(device)}
-                className="bg-slate-800 p-4 rounded-lg shadow-md cursor-pointer hover:bg-slate-700 transition-colors duration-200 group flex flex-col justify-between"
+                className="relative bg-slate-800 p-4 rounded-lg shadow-md cursor-pointer hover:bg-slate-700 transition-colors duration-200 group flex flex-col justify-between"
               >
+                <button
+                  onClick={(e) => handleDelete(e, device.id, device.name)}
+                  className="absolute top-2 right-2 p-1.5 rounded-full bg-slate-700/50 text-slate-400 opacity-0 group-hover:opacity-100 hover:bg-red-500/50 hover:text-red-300 transition-all duration-200 z-10"
+                  aria-label={`删除设备 ${device.name}`}
+                  title={`删除设备 ${device.name}`}
+                >
+                    <TrashIcon />
+                </button>
                 <div>
                   <div className="flex items-center gap-4">
                     <div className="bg-slate-900 p-2 rounded-md">

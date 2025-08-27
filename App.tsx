@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { GENESIS_BLOCKS, INITIAL_DEVICES } from './constants';
 import { Device, Block, AppSettings, BlockData } from './types';
@@ -7,6 +6,7 @@ import Header from './components/Header';
 import Dashboard from './components/Dashboard';
 import DeviceDetails from './components/DeviceDetails';
 import SettingsModal from './components/SettingsModal';
+import AddDeviceModal from './components/AddDeviceModal';
 import { Toaster, toast } from 'react-hot-toast';
 import { calculateBlockHash } from './utils/crypto';
 
@@ -22,6 +22,7 @@ const App: React.FC = () => {
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [isAddDeviceModalOpen, setIsAddDeviceModalOpen] = useState(false);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
 
   useEffect(() => {
@@ -130,6 +131,7 @@ const App: React.FC = () => {
     setDevices(prev => [...prev, newDevice]);
     setBlockchains(prev => ({ ...prev, [newDevice.id]: [genesisBlock] }));
     setSelectedDevice(newDevice);
+    setIsAddDeviceModalOpen(false); // Close modal on success
     toast.success(`设备 "${newDevice.name}" 已成功添加！`);
   };
 
@@ -181,6 +183,28 @@ const App: React.FC = () => {
     }
   };
 
+  const handleDeleteDevice = (deviceId: string) => {
+    const deviceToDelete = devices.find(d => d.id === deviceId);
+    if (!deviceToDelete) return;
+
+    // Update devices state
+    setDevices(prev => prev.filter(device => device.id !== deviceId));
+
+    // Update blockchains state
+    setBlockchains(prev => {
+      const newBlockchains = { ...prev };
+      delete newBlockchains[deviceId];
+      return newBlockchains;
+    });
+
+    // If the deleted device was the one being viewed, go back to the dashboard
+    if (selectedDevice?.id === deviceId) {
+      setSelectedDevice(null);
+    }
+
+    toast.success(`设备 "${deviceToDelete.name}" 已成功删除。`);
+  };
+
   return (
     <div className="min-h-screen bg-slate-900 font-sans">
       <Toaster position="top-center" toastOptions={{
@@ -197,7 +221,7 @@ const App: React.FC = () => {
             onBack={handleBackToDashboard}
             onAddConfiguration={handleAddConfiguration}
             onSelectDevice={handleSelectDevice}
-            onAddNewDevice={handleAddNewDevice}
+            onOpenAddDeviceModal={() => setIsAddDeviceModalOpen(true)}
             isLoading={isLoading}
           />
         ) : (
@@ -207,6 +231,8 @@ const App: React.FC = () => {
             onSelectDevice={handleSelectDevice}
             isLoading={isLoading}
             onResetData={handleResetData}
+            onDeleteDevice={handleDeleteDevice}
+            onOpenAddDeviceModal={() => setIsAddDeviceModalOpen(true)}
           />
         )}
       </main>
@@ -215,6 +241,11 @@ const App: React.FC = () => {
         onClose={() => setIsSettingsModalOpen(false)}
         settings={settings}
         onUpdateSettings={handleUpdateSettings}
+      />
+      <AddDeviceModal
+        isOpen={isAddDeviceModalOpen}
+        onClose={() => setIsAddDeviceModalOpen(false)}
+        onAddDevice={handleAddNewDevice}
       />
     </div>
   );

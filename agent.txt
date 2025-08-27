@@ -1,0 +1,169 @@
+import sys
+import configparser
+import logging
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from netmiko import ConnectHandler, NetmikoAuthenticationException, NetmikoTimeoutException
+
+# --- Basic Setup ---
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# --- Configuration Loading ---
+
+config = configparser.ConfigParser()
+try:
+    # CRITICAL FIX: Read with UTF-8 encoding to support Chinese comments
+    config.read('config.ini', encoding='utf-8')
+    if not config.sections():
+        raise FileNotFoundError("config.ini not found or is empty.")
+except (configparser.Error, FileNotFoundError, UnicodeDecodeError) as e:
+    # CRITICAL FIX: Use proper exit and provide a clear error message.
+    logging.error(f"CRITICAL: An unexpected error occurred while reading config.ini: {e}")
+    # The original bug was `NameError: name 'exit' is not defined`. This is the fix.
+    sys.exit(1)
+
+
+# --- API Models ---
+
+class ConfigPayload(BaseModel):
+    config: str
+
+# --- FastAPI App Initialization ---
+
+app = FastAPI(
+    title="ChainTrace Local Agent",
+    description="Acts as a bridge between the ChainTrace UI and real network devices.",
+    version="2.0.0",
+)
+
+# Allow all origins for simplicity in this local-only tool.
+# In a production environment, you would restrict this to the web app's domain.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# --- Helper Functions ---
+
+def get_device_info(device_id: str):
+    """
+    Retrieves device connection details from the config file.
+    """
+    device_id_upper = device_id.upper()
+    if not config.has_option('device_map', device_id_upper):
+        logging.warning(f"Device ID '{device_id}' not found in config.ini's [device_map].")
+        return None
+    
+    try:
+        host, device_type = config.get('device_map', device_id_upper).split(',')
+        return {
+            'host': host.strip(),
+            'device_type': device_type.strip(),
+            'username': config.get('credentials', 'username'),
+            'password': config.get('credentials', 'password'),
+            'secret': config.get('credentials', 'secret', fallback=None),
+        }
+    except (configparser.NoSectionError, configparser.NoOptionError) as e:
+        logging.error(f"Configuration error for device '{device_id}': {e}")
+        return None
+
+def is_simulation_mode():
+    """Checks if simulation mode is enabled in the config."""
+    try:
+        return config.get('credentials', 'username').upper() == 'SIM_USER'
+    except (configparser.NoSectionError, configparser.NoOptionError):
+        return False
+
+# --- API Endpoints ---
+
+@app.get("/api/health")
+def health_check():
+    """Health check endpoint for the UI's 'Test Connection' button."""
+    logging.info("Health check endpoint was hit.")
+    return {"status": "ok", "message": "ChainTrace Agent is running."}
+
+@app.get("/api/device/{device_id}/config")
+def get_config(device_id: str):
+    """Fetches the running configuration from a device."""
+    logging.info(f"Received request to GET config for device: {device_id}")
+    
+    if is_simulation_mode():
+        logging.info(f"SIMULATION MODE: Returning mock configuration for {device_id}.")
+        mock_config = f"hostname {device_id}\n!\ninterface Loopback0\n ip address 1.1.1.1 255.255.255.255\n!\n! End of simulated config"
+        return {"config": mock_config}
+
+    device_info = get_device_info(device_id)
+    if not device_info:
+        raise HTTPException(status_code=404, detail=f"Device ID '{device_id}' not found in configuration.")
+
+    try:
+        logging.info(f"Attempting to connect to {device_info['host']}...")
+        with ConnectHandler(**device_info) as net_connect:
+            net_connect.enable()
+            # Command to get running config varies by platform, 'show run' is a common default.
+            output = net_connect.send_command('show running-config', expect_string=r'#')
+        logging.info(f"Successfully retrieved config from {device_info['host']}.")
+        return {"config": output}
+    except NetmikoTimeoutException:
+        logging.error(f"Connection to {device_info['host']} timed out.")
+        raise HTTPException(status_code=504, detail="Connection timed out. Check IP address and network connectivity.")
+    except NetmikoAuthenticationException:
+        logging.error(f"Authentication failed for {device_info['host']}.")
+        raise HTTPException(status_code=401, detail="Authentication failed. Check credentials in config.ini.")
+    except Exception as e:
+        logging.error(f"An unexpected error occurred for device {device_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")
+
+@app.post("/api/device/{device_id}/config")
+def set_config(device_id: str, payload: ConfigPayload):
+    """Pushes a new configuration to a device."""
+    logging.info(f"Received request to POST config for device: {device_id}")
+
+    if is_simulation_mode():
+        logging.info(f"SIMULATION MODE: Simulating configuration push for {device_id}.")
+        return {"status": "success", "message": "Configuration push simulated successfully."}
+
+    device_info = get_device_info(device_id)
+    if not device_info:
+        raise HTTPException(status_code=404, detail=f"Device ID '{device_id}' not found in configuration.")
+    
+    config_commands = payload.config.splitlines()
+    if not config_commands:
+        raise HTTPException(status_code=400, detail="Configuration payload cannot be empty.")
+
+    try:
+        logging.info(f"Attempting to connect to {device_info['host']} to push config...")
+        with ConnectHandler(**device_info) as net_connect:
+            net_connect.enable()
+            output = net_connect.send_config_set(config_commands)
+        logging.info(f"Successfully pushed config to {device_info['host']}. Output:\n{output}")
+        return {"status": "success", "message": "Configuration pushed successfully.", "output": output}
+    except NetmikoTimeoutException:
+        logging.error(f"Connection to {device_info['host']} timed out.")
+        raise HTTPException(status_code=504, detail="Connection timed out. Check IP address and network connectivity.")
+    except NetmikoAuthenticationException:
+        logging.error(f"Authentication failed for {device_info['host']}.")
+        raise HTTPException(status_code=401, detail="Authentication failed. Check credentials in config.ini.")
+    except Exception as e:
+        logging.error(f"An unexpected error occurred while pushing config to {device_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")
+
+
+# --- Main Execution ---
+
+if __name__ == "__main__":
+    import uvicorn
+    try:
+        host = config.get('server', 'host', fallback='127.0.0.1')
+        port = config.getint('server', 'port', fallback=8000)
+        logging.info(f"Starting ChainTrace Agent server at http://{host}:{port}")
+        uvicorn.run(app, host=host, port=port)
+    except (configparser.NoSectionError, configparser.NoOptionError) as e:
+        logging.error(f"Could not read server config from config.ini, using defaults. Error: {e}")
+        uvicorn.run(app, host="127.0.0.1", port=8000)
