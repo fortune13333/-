@@ -1,0 +1,118 @@
+from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
+from typing import List
+
+from . import crud, models, schemas, security, initial_data
+from .database import engine, get_db
+
+# --- App Initialization ---
+# Create all database tables on startup if they don't exist
+models.Base.metadata.create_all(bind=engine)
+
+app = FastAPI()
+
+# --- CORS Middleware ---
+# Allow all origins for simplicity in this local-first tool.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # In production, restrict this to your frontend's domain
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# --- Database Seeding on Startup ---
+@app.on_event("startup")
+def populate_initial_data():
+    from .database import SessionLocal
+    db = SessionLocal()
+    try:
+        # Check if users already exist
+        user_count = db.query(models.User).count()
+        if user_count == 0:
+            print("Database is empty. Populating with initial data...")
+            # Create users
+            for user_data in initial_data.MOCK_USERS:
+                user_in = schemas.UserCreate(**user_data)
+                crud.create_user(db=db, user=user_in)
+            
+            # Create devices and their genesis blocks
+            for device_data in initial_data.INITIAL_DEVICES:
+                db_device = models.Device(**device_data)
+                db.add(db_device)
+                
+                genesis_block_data = initial_data.GENESIS_BLOCKS[device_data['id']][0]
+                db_block = models.Block(**genesis_block_data)
+                db.add(db_block)
+            
+            db.commit()
+            print("Initial data population complete.")
+        else:
+            print("Database already contains data. Skipping population.")
+    finally:
+        db.close()
+
+# --- API Endpoints ---
+
+# --- Authentication ---
+@app.post("/api/token", response_model=schemas.Token)
+def login_for_access_token(db: Session = Depends(get_db), form_data: OAuth2PasswordRequestForm = Depends()):
+    user = crud.get_user_by_username(db, username=form_data.username)
+    if not user or not security.verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token = security.create_access_token(data={"sub": user.username})
+    return {"access_token": access_token, "token_type": "bearer"}
+
+# --- Devices ---
+@app.get("/api/devices", response_model=List[schemas.Device])
+def read_devices(db: Session = Depends(get_db)):
+    # This endpoint can be enhanced with authentication if needed
+    devices = crud.get_devices(db)
+    return devices
+
+@app.get("/api/devices/{device_id}", response_model=schemas.DeviceWithBlockchain)
+def read_device_blockchain(device_id: str, db: Session = Depends(get_db)):
+    db_device = crud.get_device_with_blockchain(db, device_id=device_id)
+    if db_device is None:
+        raise HTTPException(status_code=404, detail="Device not found")
+    # Sort blocks by index descending, as the frontend expects
+    db_device.blocks.sort(key=lambda b: b.index, reverse=True)
+    return db_device
+
+@app.post("/api/devices", response_model=schemas.Device, status_code=status.HTTP_201_CREATED)
+def create_device(device: schemas.DeviceCreate, db: Session = Depends(get_db)):
+    db_device = crud.get_device_with_blockchain(db, device_id=device.id)
+    if db_device:
+        raise HTTPException(status_code=400, detail=f"Device ID '{device.id}' already exists")
+    return crud.create_device_with_genesis_block(db=db, device=device)
+
+@app.delete("/api/devices/{device_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_device(device_id: str, db: Session = Depends(get_db)):
+    db_device = crud.delete_device(db, device_id=device_id)
+    if not db_device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    return
+
+# --- Blockchain ---
+@app.post("/api/devices/{device_id}/blockchain", response_model=schemas.Block, status_code=status.HTTP_201_CREATED)
+def create_block_for_device(device_id: str, block: schemas.BlockCreate, db: Session = Depends(get_db)):
+    db_device = crud.get_device_with_blockchain(db, device_id)
+    if not db_device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    
+    return crud.create_device_block(db=db, block_data=block, device_id=device_id)
+
+# --- Admin / Data Management ---
+@app.post("/api/reset-data", status_code=status.HTTP_204_NO_CONTENT)
+def reset_all_data(db: Session = Depends(get_db)):
+    crud.reset_database(db)
+    # Repopulate data after reset
+    populate_initial_data()
+    return
