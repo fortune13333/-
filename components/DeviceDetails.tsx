@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect } from 'react';
-import { Device, Block, AppSettings } from '../types';
+import { Device, Block, AppSettings, User } from '../types';
 import HistoryItem from './HistoryItem';
 import BlockDetailsModal from './BlockDetailsModal';
 import VerificationModal, { VerificationResult } from './VerificationModal';
@@ -14,8 +15,10 @@ interface DeviceDetailsProps {
   allDevices: Device[];
   chain: Block[];
   settings: AppSettings;
+  currentUser: User;
   onBack: () => void;
-  onAddConfiguration: (deviceId: string, newConfig: string, operator: string) => void;
+  onAddConfiguration: (deviceId: string, newConfig: string) => void;
+  onPromptRollback: (targetBlock: Block) => void;
   onSelectDevice: (device: Device) => void;
   onOpenAddDeviceModal: () => void;
   isLoading: boolean;
@@ -27,10 +30,12 @@ const ShieldCheckIcon: React.FC = () => (
   </svg>
 );
 
-const DeviceDetails: React.FC<DeviceDetailsProps> = ({ device, allDevices, chain, settings, onBack, onAddConfiguration, onSelectDevice, onOpenAddDeviceModal, isLoading }) => {
+const DeviceDetails: React.FC<DeviceDetailsProps> = ({ 
+    device, allDevices, chain, settings, currentUser, 
+    onBack, onAddConfiguration, onPromptRollback, onSelectDevice, onOpenAddDeviceModal, isLoading 
+}) => {
   const lastBlock = chain[chain.length - 1];
   const [newConfig, setNewConfig] = useState(lastBlock?.data?.config || '');
-  const [operator, setOperator] = useState('net_admin');
   const [selectedBlockInfo, setSelectedBlockInfo] = useState<{ block: Block; prevConfig: string } | null>(null);
   
   const [isVerifying, setIsVerifying] = useState(false);
@@ -117,7 +122,7 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({ device, allDevices, chain
         }
     }
 
-    onAddConfiguration(device.id, newConfig, operator);
+    onAddConfiguration(device.id, newConfig);
   };
   
   const handleVerifyChain = async () => {
@@ -249,8 +254,15 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({ device, allDevices, chain
             </div>
           </div>
           <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2">
-            {sortedChain.map(block => (
-              <HistoryItem key={block.hash} block={block} onSelectBlock={() => handleSelectBlock(block)} />
+            {sortedChain.map((block, index) => (
+              <HistoryItem 
+                key={block.hash} 
+                block={block} 
+                isLatest={index === 0}
+                currentUser={currentUser}
+                onSelectBlock={() => handleSelectBlock(block)} 
+                onRollback={() => onPromptRollback(block)}
+              />
             ))}
             {sortedChain.length === 0 && (
                 <div className="text-center py-8 text-slate-500">
@@ -265,20 +277,9 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({ device, allDevices, chain
         <div className="bg-slate-800 p-6 rounded-lg shadow-xl flex flex-col">
           <div>
             <h3 className="text-2xl font-bold text-white mb-4">提交新配置</h3>
-            <p className="text-slate-400 mb-6">应用新配置将在链上创建一个新的、不可变的区块。</p>
+            <p className="text-slate-400 mb-6">应用新配置将在链上创建一个新的、不可变的区块，操作员为 <span className="font-mono text-cyan-400">{currentUser.username}</span>。</p>
           </div>
           <form onSubmit={handleSubmit} className="flex flex-col flex-grow">
-            <div className="mb-4">
-              <label htmlFor="operator" className="block text-sm font-medium text-slate-300 mb-2">操作员</label>
-              <input 
-                type="text" 
-                id="operator"
-                value={operator}
-                onChange={(e) => setOperator(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-md p-2 text-slate-200 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-                required
-              />
-            </div>
             <div className="mb-4 flex-grow flex flex-col">
                <div className="flex justify-between items-center mb-2">
                  <label htmlFor="config" className="block text-sm font-medium text-slate-300">配置文本</label>

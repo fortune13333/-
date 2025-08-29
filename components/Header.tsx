@@ -1,5 +1,6 @@
 
 import React from 'react';
+import { User } from '../types';
 
 const ChainIcon: React.FC = () => (
   <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -15,10 +16,12 @@ const SettingsIcon: React.FC = () => (
 );
 
 interface HeaderProps {
+    currentUser: User | null;
+    onLogout: () => void;
     onOpenSettings: () => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ onOpenSettings }) => {
+const Header: React.FC<HeaderProps> = ({ currentUser, onLogout, onOpenSettings }) => {
   return (
     <header className="bg-slate-800/50 backdrop-blur-sm shadow-lg sticky top-0 z-50">
       <div className="container mx-auto px-4 md:px-8 py-4 flex items-center justify-between">
@@ -29,13 +32,28 @@ const Header: React.FC<HeaderProps> = ({ onOpenSettings }) => {
                 <p className="text-sm text-slate-400">网络配置守护者</p>
             </div>
         </div>
-        <button
-            onClick={onOpenSettings}
-            className="text-slate-400 hover:text-white p-2 rounded-full hover:bg-slate-700 transition-colors"
-            aria-label="打开设置"
-        >
-            <SettingsIcon />
-        </button>
+        {currentUser && (
+            <div className="flex items-center gap-4">
+                 <div className="text-right">
+                    <span className="text-sm text-slate-300">已登录为</span>
+                    <span className="font-bold text-white ml-2">{currentUser.username}</span>
+                    <span className="text-xs text-cyan-400 bg-slate-700 px-2 py-0.5 rounded-full ml-2">{currentUser.role}</span>
+                </div>
+                <button
+                    onClick={onOpenSettings}
+                    className="text-slate-400 hover:text-white p-2 rounded-full hover:bg-slate-700 transition-colors"
+                    aria-label="打开设置"
+                >
+                    <SettingsIcon />
+                </button>
+                 <button
+                    onClick={onLogout}
+                    className="text-sm text-slate-300 hover:text-red-400 bg-slate-700/50 hover:bg-red-500/20 px-3 py-2 rounded-md transition-colors"
+                >
+                    登出
+                </button>
+            </div>
+        )}
       </div>
     </header>
   );

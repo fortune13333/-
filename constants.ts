@@ -1,5 +1,5 @@
 
-import { Device, Block } from './types';
+import { Device, Block, User } from './types';
 
 export const INITIAL_DEVICES: Device[] = [
   { id: 'RTR01-NYC', name: 'Core Router NYC', ipAddress: '192.168.1.1', type: 'Router' },
@@ -120,3 +120,10 @@ end`,
     },
   ],
 };
+
+// --- Mock User Database for Authentication Simulation ---
+export const MOCK_USERS: User[] = [
+  { id: 1, username: 'admin', password: 'admin', role: 'admin' },
+  { id: 2, username: 'operator1', password: 'password', role: 'operator' },
+  { id: 3, username: 'net_admin', password: 'password123', role: 'operator' },
+];

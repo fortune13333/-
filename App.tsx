@@ -1,12 +1,15 @@
+
 import React, { useState, useEffect } from 'react';
-import { GENESIS_BLOCKS, INITIAL_DEVICES } from './constants';
-import { Device, Block, AppSettings, BlockData } from './types';
+import { GENESIS_BLOCKS, INITIAL_DEVICES, MOCK_USERS } from './constants';
+import { Device, Block, AppSettings, BlockData, User } from './types';
 import { geminiService } from './services/geminiService';
 import Header from './components/Header';
 import Dashboard from './components/Dashboard';
 import DeviceDetails from './components/DeviceDetails';
 import SettingsModal from './components/SettingsModal';
 import AddDeviceModal from './components/AddDeviceModal';
+import Login from './components/Login';
+import ConfirmationModal from './components/ConfirmationModal';
 import { Toaster, toast } from 'react-hot-toast';
 import { calculateBlockHash } from './utils/crypto';
 
@@ -28,6 +31,8 @@ const App: React.FC = () => {
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isAddDeviceModalOpen, setIsAddDeviceModalOpen] = useState(false);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [rollbackTarget, setRollbackTarget] = useState<Block | null>(null);
 
   useEffect(() => {
     // Load all data on initial mount
@@ -35,6 +40,7 @@ const App: React.FC = () => {
       const storedDevices = localStorage.getItem('chaintrace_devices');
       const storedBlockchains = localStorage.getItem('chaintrace_blockchains');
       const storedSettings = localStorage.getItem('chaintrace_settings');
+      const storedUser = sessionStorage.getItem('chaintrace_user');
 
       if (storedDevices && storedBlockchains) {
         setDevices(JSON.parse(storedDevices));
@@ -75,6 +81,11 @@ const App: React.FC = () => {
       } else {
         setSettings(DEFAULT_SETTINGS);
       }
+
+      if (storedUser) {
+        setCurrentUser(JSON.parse(storedUser));
+      }
+
     } catch (error) {
       console.error("Failed to load data from localStorage", error);
       setDevices(INITIAL_DEVICES);
@@ -97,6 +108,19 @@ const App: React.FC = () => {
       console.error("Failed to save data to localStorage", error);
     }
   }, [blockchains, devices, settings, isLoading]);
+
+  const handleLogin = (user: User) => {
+    setCurrentUser(user);
+    sessionStorage.setItem('chaintrace_user', JSON.stringify(user));
+    toast.success(`欢迎, ${user.username}!`);
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    setSelectedDevice(null);
+    sessionStorage.removeItem('chaintrace_user');
+    toast.success('您已成功登出。');
+  };
 
   const handleUpdateSettings = (newSettings: Partial<AppSettings>) => {
     // Deep merge for nested AI settings
@@ -173,8 +197,11 @@ const App: React.FC = () => {
     toast.success(`设备 "${newDevice.name}" 已成功添加！`);
   };
 
-
-  const handleAddConfiguration = async (deviceId: string, newConfig: string, operator: string) => {
+  const handleAddConfiguration = async (deviceId: string, newConfig: string) => {
+    if (!currentUser) {
+      toast.error('未授权的操作。请重新登录。');
+      return;
+    }
     if (!newConfig.trim()) {
       toast.error('配置不能为空。');
       return;
@@ -188,9 +215,10 @@ const App: React.FC = () => {
       const { newBlock, aiSuccess } = await geminiService.addNewConfiguration(
         deviceId, 
         newConfig, 
-        operator, 
+        currentUser.username, 
         currentChain,
-        settings
+        settings,
+        'update' // changeType
       );
       
       setBlockchains(prev => ({
@@ -220,6 +248,68 @@ const App: React.FC = () => {
       setIsLoading(false);
     }
   };
+  
+  const handlePromptRollback = (targetBlock: Block) => {
+    if (!currentUser || currentUser.role !== 'admin') {
+      toast.error('权限不足，只有管理员才能执行回滚操作。');
+      return;
+    }
+    
+    const deviceId = targetBlock.data.deviceId;
+    const currentChain = blockchains[deviceId] || [];
+    const lastBlock = currentChain[currentChain.length - 1];
+    if (lastBlock.hash === targetBlock.hash) {
+      toast.error('无法回滚到当前最新版本。');
+      return;
+    }
+
+    setRollbackTarget(targetBlock);
+  };
+
+  const executeRollback = async () => {
+    if (!rollbackTarget || !currentUser) return;
+    
+    // Capture the block to work with, to avoid issues with state being updated.
+    const targetBlock = rollbackTarget;
+
+    const deviceId = targetBlock.data.deviceId;
+    const currentChain = blockchains[deviceId] || [];
+    const lastBlock = currentChain[currentChain.length - 1];
+
+    setIsLoading(true);
+    const toastId = toast.loading(`正在回滚至版本 ${targetBlock.data.version} 并请求 AI 分析...`);
+    setRollbackTarget(null); // Close modal immediately
+
+    try {
+      const rollbackConfig = targetBlock.data.config;
+      const changeDescription = `配置从版本 ${lastBlock.data.version} 回滚至版本 ${targetBlock.data.version}。`;
+
+      const { newBlock } = await geminiService.addNewConfiguration(
+        deviceId,
+        rollbackConfig,
+        currentUser.username,
+        currentChain,
+        settings,
+        'rollback',
+        changeDescription
+      );
+
+      setBlockchains(prev => ({
+        ...prev,
+        [deviceId]: [...currentChain, newBlock]
+      }));
+      
+      toast.success(`已成功回滚至版本 ${targetBlock.data.version}！`, { id: toastId });
+
+    } catch (error) {
+      console.error("Error rolling back configuration:", error);
+      const errorMessage = error instanceof Error ? error.message : '发生未知错误。';
+      toast.error(`回滚失败: ${errorMessage}`, { id: toastId });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
 
   const handleDeleteDevice = (deviceId: string) => {
     const deviceToDelete = devices.find(d => d.id === deviceId);
@@ -242,13 +332,28 @@ const App: React.FC = () => {
 
     toast.success(`设备 "${deviceToDelete.name}" 已成功删除。`);
   };
+  
+  if (!currentUser) {
+    return (
+        <div className="min-h-screen bg-slate-900 font-sans flex items-center justify-center">
+            <Toaster position="top-center" toastOptions={{
+                className: '!bg-slate-700 !text-white',
+            }} />
+            <Login onLogin={handleLogin} mockUsers={MOCK_USERS} />
+        </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-900 font-sans">
       <Toaster position="top-center" toastOptions={{
         className: '!bg-slate-700 !text-white',
       }} />
-      <Header onOpenSettings={() => setIsSettingsModalOpen(true)} />
+      <Header 
+        currentUser={currentUser}
+        onLogout={handleLogout}
+        onOpenSettings={() => setIsSettingsModalOpen(true)} 
+      />
       <main className="container mx-auto p-4 md:p-8">
         {selectedDevice ? (
           <DeviceDetails 
@@ -256,8 +361,10 @@ const App: React.FC = () => {
             allDevices={devices}
             chain={blockchains[selectedDevice.id] || []}
             settings={settings}
+            currentUser={currentUser}
             onBack={handleBackToDashboard}
             onAddConfiguration={handleAddConfiguration}
+            onPromptRollback={handlePromptRollback}
             onSelectDevice={handleSelectDevice}
             onOpenAddDeviceModal={() => setIsAddDeviceModalOpen(true)}
             isLoading={isLoading}
@@ -285,6 +392,23 @@ const App: React.FC = () => {
         onClose={() => setIsAddDeviceModalOpen(false)}
         onAddDevice={handleAddNewDevice}
       />
+      {rollbackTarget && (
+        <ConfirmationModal
+          isOpen={!!rollbackTarget}
+          onClose={() => setRollbackTarget(null)}
+          onConfirm={executeRollback}
+          title="确认回滚操作"
+          confirmText="确认回滚"
+          confirmButtonVariant="warning"
+        >
+          <p className="text-sm text-slate-300">
+            您确定要将设备 <strong className="font-bold text-white">{rollbackTarget.data.deviceId}</strong> 的配置回滚到 <strong className="font-bold text-white">版本 {rollbackTarget.data.version}</strong> 吗？
+          </p>
+          <p className="mt-2 text-xs text-slate-400">
+            此操作将在区块链上创建一个新的配置记录，而不是删除历史记录。
+          </p>
+        </ConfirmationModal>
+      )}
     </div>
   );
 };

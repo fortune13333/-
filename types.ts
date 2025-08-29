@@ -12,7 +12,7 @@ export interface BlockData {
   operator: string;
   config: string;
   diff: string;
-  changeType: 'initial' | 'update';
+  changeType: 'initial' | 'update' | 'rollback';
   summary: string;
   analysis: string;
   security_risks: string;
@@ -38,4 +38,11 @@ export interface AppSettings {
     configCheck: AIServiceSettings;
   };
   agentApiUrl?: string;
+}
+
+export interface User {
+  id: number;
+  username: string;
+  password?: string; // Password should be handled securely on a real backend
+  role: 'admin' | 'operator';
 }

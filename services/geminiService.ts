@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { Block, BlockData, AppSettings, Device } from '../types';
 import { calculateBlockHash } from '../utils/crypto';
@@ -56,7 +57,9 @@ const addNewConfiguration = async (
   newConfig: string, 
   operator: string, 
   currentChain: Block[],
-  settings: AppSettings
+  settings: AppSettings,
+  changeType: BlockData['changeType'],
+  changeDescription?: string,
 ): Promise<{ newBlock: Block; aiSuccess: boolean }> => {
   const { enabled: analysisEnabled, apiUrl: analysisApiUrl } = settings.ai.analysis;
   const lastBlock = currentChain[currentChain.length - 1];
@@ -76,6 +79,7 @@ const addNewConfiguration = async (
           body: JSON.stringify({
             previousConfig: lastBlock.data.config,
             newConfig: newConfig,
+            changeDescription: changeDescription,
           }),
         });
 
@@ -105,6 +109,8 @@ const addNewConfiguration = async (
       const prompt = `
         You are an expert network and security engineer.
         Analyze the following network device configuration change.
+        ${changeDescription ? `Context for the change: ${changeDescription}` : ''}
+
         Previous Configuration:
         ---
         ${lastBlock.data.config}
@@ -115,7 +121,7 @@ const addNewConfiguration = async (
         ---
         Your task is to:
         1. Create a simple text-based diff of the changes. Use '+' for additions and '-' for deletions.
-        2. Write a concise, one-sentence summary of the main purpose of the change.
+        2. Write a concise, one-sentence summary of the main purpose of the change. If a specific context is provided, use it to inform your summary.
         3. Provide a brief analysis of what the changes do in plain English.
         4. Identify any potential security risks or best practice violations introduced by the new configuration. If there are no obvious risks, state that clearly.
 
@@ -171,7 +177,7 @@ const addNewConfiguration = async (
     summary: analysisResult.summary,
     analysis: analysisResult.analysis,
     security_risks: analysisResult.security_risks,
-    changeType: 'update',
+    changeType: changeType,
   };
 
   const blockWithoutHash: Omit<Block, 'hash'> = {
