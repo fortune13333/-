@@ -1,4 +1,5 @@
 import logging
+import asyncio
 from typing import List, Dict
 from fastapi import FastAPI, Depends, HTTPException, status, WebSocket, WebSocketDisconnect
 from fastapi.security import OAuth2PasswordRequestForm
@@ -63,9 +64,24 @@ class ConnectionManager:
     async def broadcast_users(self, device_id: str):
         if device_id in self.active_connections:
             user_list = list(self.active_connections[device_id].keys())
-            for connection in self.active_connections[device_id].values():
-                await connection.send_json(user_list)
+            message = {"type": "USER_LIST_UPDATE", "payload": user_list}
+            await asyncio.gather(*[
+                connection.send_json(message)
+                for connection in self.active_connections[device_id].values()
+            ])
             logging.info(f"Broadcasted user list for device '{device_id}': {user_list}")
+
+    async def broadcast_new_block(self, device_id: str, block: models.Block):
+        if device_id in self.active_connections:
+            # FIX: Convert the SQLAlchemy ORM model to a Pydantic model before serializing.
+            # This prevents a server crash when trying to call a Pydantic method on a non-Pydantic object.
+            pydantic_block = schemas.Block.model_validate(block)
+            message = {"type": "NEW_BLOCK", "payload": pydantic_block.model_dump(mode="json")}
+            logging.info(f"Broadcasting new block for device '{device_id}'.")
+            await asyncio.gather(*[
+                connection.send_json(message)
+                for connection in self.active_connections[device_id].values()
+            ])
 
 manager = ConnectionManager()
 
@@ -122,8 +138,10 @@ def delete_device(device_id: str, db: Session = Depends(get_db), current_user: U
 
 # --- Blockchain ---
 @app.post("/api/devices/{device_id}/blockchain", response_model=schemas.Block, status_code=status.HTTP_201_CREATED)
-def add_block_to_device(device_id: str, block: schemas.BlockCreate, db: Session = Depends(get_db), current_user: User = Depends(security.get_current_active_user)):
-    return crud.add_block(db=db, block=block, device_id=device_id)
+async def add_block_to_device(device_id: str, block: schemas.BlockCreate, db: Session = Depends(get_db), current_user: User = Depends(security.get_current_active_user)):
+    new_block = crud.add_block(db=db, block=block, device_id=device_id)
+    await manager.broadcast_new_block(device_id, new_block)
+    return new_block
 
 
 # --- Admin ---

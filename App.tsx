@@ -24,7 +24,8 @@ const App: React.FC = () => {
   const [devices, setDevices] = useState<Device[]>([]);
   const [blockchains, setBlockchains] = useState<Record<string, Block[]>>({});
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isAppLoading, setIsAppLoading] = useState<boolean>(true);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isAddDeviceModalOpen, setIsAddDeviceModalOpen] = useState(false);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
@@ -85,17 +86,17 @@ const App: React.FC = () => {
             apiService.logout();
           })
           .finally(() => {
-            setIsLoading(false);
+            setIsAppLoading(false);
           });
     } else {
-      setIsLoading(false);
+      setIsAppLoading(false);
     }
   }, []);
 
   // Fetch devices when authenticated
   useEffect(() => {
     if (isAuthenticated) {
-      setIsLoading(true);
+      setIsAppLoading(true);
       apiService.getDevices()
         .then(data => {
           setDevices(data);
@@ -104,7 +105,7 @@ const App: React.FC = () => {
           toast.error(`获取设备列表失败: ${error.message}`);
         })
         .finally(() => {
-          setIsLoading(false);
+          setIsAppLoading(false);
         });
     }
   }, [isAuthenticated]);
@@ -151,7 +152,7 @@ const App: React.FC = () => {
   };
 
   const handleSelectDevice = async (device: Device) => {
-    setIsLoading(true);
+    setIsAppLoading(true);
     setSelectedDevice(device);
     try {
         if (!blockchains[device.id]) {
@@ -165,7 +166,7 @@ const App: React.FC = () => {
         toast.error(`获取设备 ${device.name} 的历史记录失败。`);
         setSelectedDevice(null); // Deselect if fetching fails
     } finally {
-        setIsLoading(false);
+        setIsAppLoading(false);
     }
   };
 
@@ -180,7 +181,7 @@ const App: React.FC = () => {
     }
     const isConfirmed = window.confirm("您确定要重置所有数据到初始状态吗？此操作将清空后端数据库并重新填充初始数据。");
     if (isConfirmed) {
-      setIsLoading(true);
+      setIsAppLoading(true);
       try {
         await apiService.resetData();
         const data = await apiService.getDevices();
@@ -191,7 +192,7 @@ const App: React.FC = () => {
       } catch (error) {
         toast.error(`重置数据失败: ${error.message}`);
       } finally {
-        setIsLoading(false);
+        setIsAppLoading(false);
       }
     }
   };
@@ -230,7 +231,7 @@ const App: React.FC = () => {
       return;
     }
     
-    setIsLoading(true);
+    setIsSubmitting(true);
     const toastId = toast.loading(settings.ai.analysis.enabled ? '正在提交并请求 AI 分析...' : '正在提交到区块链...');
     
     try {
@@ -275,7 +276,7 @@ const App: React.FC = () => {
       const errorMessage = error instanceof Error ? error.message : '发生未知错误。';
       toast.error(`添加配置失败: ${errorMessage}`, { id: toastId });
     } finally {
-      setIsLoading(false);
+      setIsSubmitting(false);
     }
   };
   
@@ -304,7 +305,7 @@ const App: React.FC = () => {
     const currentChain = blockchains[deviceId] || [];
     const lastBlock = currentChain[0];
 
-    setIsLoading(true);
+    setIsSubmitting(true);
     const toastId = toast.loading(`正在回滚至版本 ${targetBlock.version} 并请求 AI 分析...`);
     setRollbackTarget(null);
 
@@ -339,7 +340,7 @@ const App: React.FC = () => {
       const errorMessage = error instanceof Error ? error.message : '发生未知错误。';
       toast.error(`回滚失败: ${errorMessage}`, { id: toastId });
     } finally {
-      setIsLoading(false);
+      setIsSubmitting(false);
     }
   };
 
@@ -371,7 +372,25 @@ const App: React.FC = () => {
     }
   };
   
-  if (isLoading) {
+  const handleRealtimeBlockAdd = (deviceId: string, newBlock: Block) => {
+    setBlockchains(prev => {
+      const currentChain = prev[deviceId] || [];
+      // Prevent adding duplicates if the message is somehow received by the sender too
+      if (currentChain.some(b => b.hash === newBlock.hash)) {
+        return prev;
+      }
+      toast.success(`设备 ${deviceId} 的配置已由其他用户更新!`, {
+        icon: '🔄',
+        duration: 5000,
+      });
+      return {
+        ...prev,
+        [deviceId]: [newBlock, ...currentChain]
+      };
+    });
+  };
+
+  if (isAppLoading) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center">
         <div className="text-center">
@@ -419,14 +438,15 @@ const App: React.FC = () => {
             onPromptRollback={handlePromptRollback}
             onSelectDevice={handleSelectDevice}
             onOpenAddDeviceModal={() => setIsAddDeviceModalOpen(true)}
-            isLoading={isLoading}
+            onRealtimeBlockAdd={handleRealtimeBlockAdd}
+            isSubmitting={isSubmitting}
           />
         ) : (
           <Dashboard 
             devices={devices} 
             blockchains={blockchains}
             onSelectDevice={handleSelectDevice}
-            isLoading={isLoading}
+            isLoading={isAppLoading}
             onResetData={handleResetData}
             onDeleteDevice={handleDeleteDevice}
             currentUser={currentUser}

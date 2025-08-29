@@ -19,12 +19,13 @@ interface DeviceDetailsProps {
   onPromptRollback: (targetBlock: Block) => void;
   onSelectDevice: (device: Device) => void;
   onOpenAddDeviceModal: () => void;
-  isLoading: boolean;
+  onRealtimeBlockAdd: (deviceId: string, newBlock: Block) => void;
+  isSubmitting: boolean;
 }
 
 const DeviceDetails: React.FC<DeviceDetailsProps> = ({ 
     device, allDevices, chain, settings, currentUser,
-    onBack, onAddConfiguration, onPromptRollback, onSelectDevice, onOpenAddDeviceModal, isLoading 
+    onBack, onAddConfiguration, onPromptRollback, onSelectDevice, onOpenAddDeviceModal, onRealtimeBlockAdd, isSubmitting
 }) => {
   const lastBlock = chain[0]; // Chain is sorted descending
   const [newConfig, setNewConfig] = useState(lastBlock?.config || '');
@@ -75,9 +76,19 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
 
     socket.onmessage = (event) => {
         try {
-            const users = JSON.parse(event.data);
-            if (Array.isArray(users)) {
-                setConcurrentUsers(users);
+            const message = JSON.parse(event.data);
+            
+            if (message.type === 'USER_LIST_UPDATE' && Array.isArray(message.payload)) {
+                setConcurrentUsers(message.payload);
+            } else if (message.type === 'NEW_BLOCK' && message.payload) {
+                // The current user who submitted the block doesn't need a UI update,
+                // because their UI updates via the standard HTTP response flow.
+                // This prevents duplicate state updates and confusing notifications.
+                if (message.payload.operator !== currentUser.username) {
+                    onRealtimeBlockAdd(device.id, message.payload);
+                }
+            } else {
+                console.warn('Received unknown WebSocket message format:', message);
             }
         } catch (error) {
             console.error('Failed to parse WebSocket message:', error);
@@ -130,7 +141,7 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
             socketRef.current = null;
         }
     };
-  }, [device.id, currentUser.username]); // Re-run effect if device or user changes
+  }, [device.id, currentUser.username, onRealtimeBlockAdd]); // Re-run effect if device or user changes
 
   const handleSelectBlock = (block: Block) => {
     const prevBlock = chain.find(b => b.index === block.index - 1);
@@ -325,7 +336,7 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
                         <button
                             type="button"
                             onClick={handleConfigCheck}
-                            disabled={isCheckingConfig || isLoading}
+                            disabled={isCheckingConfig || isSubmitting}
                             className="flex items-center gap-2 text-xs bg-slate-700 hover:bg-slate-600 disabled:bg-slate-900 disabled:text-slate-500 disabled:cursor-not-allowed text-white font-bold py-1 px-3 rounded-md transition-colors"
                         >
                             {isCheckingConfig ? <Loader /> : <BrainIcon />}
@@ -336,7 +347,7 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
                         <button
                             type="button"
                             onClick={handleFetchFromDevice}
-                            disabled={isFetchingConfig || isLoading}
+                            disabled={isFetchingConfig || isSubmitting}
                             className="flex items-center gap-2 text-xs bg-slate-700 hover:bg-slate-600 disabled:bg-slate-900 disabled:text-slate-500 disabled:cursor-not-allowed text-white font-bold py-1 px-3 rounded-md transition-colors"
                         >
                             {isFetchingConfig ? <Loader /> : <DownloadIcon />}
@@ -351,6 +362,7 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
                 onChange={(e) => setNewConfig(e.target.value)}
                 className="w-full flex-grow bg-slate-900 border border-slate-700 rounded-md p-2 font-mono text-sm text-slate-200 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                 placeholder="在此处输入完整的设备配置..."
+                disabled={isSubmitting}
               />
             </div>
 
@@ -382,12 +394,12 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
                             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleGenerateConfig(); }}}
                             className="flex-grow bg-slate-700 border border-slate-600 rounded-md p-2 text-slate-200 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 text-sm"
                             placeholder="例如：为 VLAN 10 添加端口 G0/1"
-                            disabled={isGenerating}
+                            disabled={isGenerating || isSubmitting}
                         />
                         <button
                             type="button"
                             onClick={handleGenerateConfig}
-                            disabled={isGenerating || isLoading}
+                            disabled={isGenerating || isSubmitting}
                             className="flex-shrink-0 flex items-center justify-center gap-2 w-32 bg-slate-700 hover:bg-cyan-600/50 text-white font-bold py-2 px-3 rounded-md transition-colors text-sm disabled:opacity-50 disabled:cursor-wait"
                         >
                            {isGenerating ? <Loader/> : '生成命令'}
@@ -398,10 +410,10 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
 
             <button
               type="submit"
-              disabled={isLoading || isFetchingConfig || isGenerating || isCheckingConfig}
+              disabled={isSubmitting || isFetchingConfig || isGenerating || isCheckingConfig}
               className="w-full flex justify-center items-center gap-2 bg-cyan-600 hover:bg-cyan-700 disabled:bg-slate-600 text-white font-bold py-2 px-4 rounded-md transition-colors mt-auto"
             >
-              {isLoading ? <Loader /> : (settings.agentApiUrl ? '推送到设备并记录' : '提交到区块链')}
+              {isSubmitting ? <Loader /> : (settings.agentApiUrl ? '推送到设备并记录' : '提交到区块链')}
             </button>
           </form>
         </div>
