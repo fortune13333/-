@@ -46,3 +46,9 @@ export interface User {
   password?: string; // Password should be handled securely on a real backend
   role: 'admin' | 'operator';
 }
+
+// For real-time collaboration feature
+export interface SessionUser {
+    username: string;
+    sessionId: string;
+}

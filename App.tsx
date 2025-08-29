@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { GENESIS_BLOCKS, INITIAL_DEVICES, MOCK_USERS } from './constants';
 import { Device, Block, AppSettings, BlockData, User } from './types';
 import { geminiService } from './services/geminiService';
@@ -12,6 +12,8 @@ import Login from './components/Login';
 import ConfirmationModal from './components/ConfirmationModal';
 import { Toaster, toast } from 'react-hot-toast';
 import { calculateBlockHash } from './utils/crypto';
+import { leaveDeviceSession, clearAllMySessions } from './utils/session';
+
 
 const DEFAULT_SETTINGS: AppSettings = {
   ai: {
@@ -33,6 +35,9 @@ const App: React.FC = () => {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [rollbackTarget, setRollbackTarget] = useState<Block | null>(null);
+
+  // Generate a unique ID for this browser tab session
+  const sessionId = useMemo(() => crypto.randomUUID(), []);
 
   useEffect(() => {
     // Load all data on initial mount
@@ -94,7 +99,19 @@ const App: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+
+    // Clean up session on tab close/refresh
+    const handleBeforeUnload = () => {
+        if (selectedDevice) {
+            leaveDeviceSession(selectedDevice.id, sessionId);
+        }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+        window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+
+  }, [selectedDevice, sessionId]);
 
   useEffect(() => {
     // Save data to localStorage whenever it changes
@@ -116,6 +133,10 @@ const App: React.FC = () => {
   };
 
   const handleLogout = () => {
+    // Clean up any active sessions for this user before logging out
+    if(currentUser) {
+       clearAllMySessions(sessionId);
+    }
     setCurrentUser(null);
     setSelectedDevice(null);
     sessionStorage.removeItem('chaintrace_user');
@@ -148,6 +169,7 @@ const App: React.FC = () => {
       setIsLoading(true);
       localStorage.removeItem('chaintrace_devices');
       localStorage.removeItem('chaintrace_blockchains');
+      localStorage.removeItem('chaintrace_active_sessions'); // Clear session data
       setDevices(INITIAL_DEVICES);
       setBlockchains(GENESIS_BLOCKS);
       setSelectedDevice(null);
@@ -362,6 +384,7 @@ const App: React.FC = () => {
             chain={blockchains[selectedDevice.id] || []}
             settings={settings}
             currentUser={currentUser}
+            sessionId={sessionId}
             onBack={handleBackToDashboard}
             onAddConfiguration={handleAddConfiguration}
             onPromptRollback={handlePromptRollback}

@@ -1,6 +1,6 @@
 
-import React, { useState, useEffect } from 'react';
-import { Device, Block, AppSettings, User } from '../types';
+import React, { useState, useEffect, useRef } from 'react';
+import { Device, Block, AppSettings, User, SessionUser } from '../types';
 import HistoryItem from './HistoryItem';
 import BlockDetailsModal from './BlockDetailsModal';
 import VerificationModal, { VerificationResult } from './VerificationModal';
@@ -9,6 +9,7 @@ import { verifyChain } from '../utils/crypto';
 import { toast } from 'react-hot-toast';
 import { DownloadIcon, PlusIcon, SparklesIcon, BrainIcon } from './AIIcons';
 import { geminiService } from '../services/geminiService';
+import { joinDeviceSession, leaveDeviceSession, getActiveSessions } from '../utils/session';
 
 interface DeviceDetailsProps {
   device: Device;
@@ -16,6 +17,7 @@ interface DeviceDetailsProps {
   chain: Block[];
   settings: AppSettings;
   currentUser: User;
+  sessionId: string;
   onBack: () => void;
   onAddConfiguration: (deviceId: string, newConfig: string) => void;
   onPromptRollback: (targetBlock: Block) => void;
@@ -30,8 +32,25 @@ const ShieldCheckIcon: React.FC = () => (
   </svg>
 );
 
+const CollaborationWarning: React.FC<{ users: SessionUser[] }> = ({ users }) => {
+    if (users.length === 0) return null;
+
+    const userNames = users.map(u => u.username).join(', ');
+
+    return (
+        <div className="bg-yellow-900/50 border border-yellow-700/50 text-yellow-300 p-3 rounded-md mb-4 text-sm flex items-center gap-3">
+             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+            </svg>
+            <span>
+                注意: 用户 <strong className="font-bold text-yellow-200">{userNames}</strong> 也正在查看此设备。
+            </span>
+        </div>
+    );
+};
+
 const DeviceDetails: React.FC<DeviceDetailsProps> = ({ 
-    device, allDevices, chain, settings, currentUser, 
+    device, allDevices, chain, settings, currentUser, sessionId,
     onBack, onAddConfiguration, onPromptRollback, onSelectDevice, onOpenAddDeviceModal, isLoading 
 }) => {
   const lastBlock = chain[chain.length - 1];
@@ -48,6 +67,46 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
 
   const [isCheckingConfig, setIsCheckingConfig] = useState(false);
   const [configCheckResult, setConfigCheckResult] = useState<string | null>(null);
+
+  const [otherViewingUsers, setOtherViewingUsers] = useState<SessionUser[]>([]);
+
+  // Effect for joining/leaving a device session and updating viewers
+  useEffect(() => {
+    // Capture the current device ID for this effect render.
+    const currentDeviceId = device.id;
+
+    // --- Action: Join the session ---
+    joinDeviceSession(currentDeviceId, currentUser, sessionId);
+    
+    // --- Action: Update UI with current viewers ---
+    const sessions = getActiveSessions();
+    const currentDeviceSessions = sessions[currentDeviceId] || [];
+    setOtherViewingUsers(currentDeviceSessions.filter(u => u.sessionId !== sessionId));
+
+    // --- Cleanup: Leave the session ---
+    // This cleanup function will be called when the component unmounts
+    // or when the device.id changes (before the next effect runs).
+    // It closes over `currentDeviceId` ensuring it leaves the correct session.
+    return () => {
+      leaveDeviceSession(currentDeviceId, sessionId);
+    };
+  }, [device.id, currentUser, sessionId]);
+
+  // Effect for listening to changes from other tabs
+  useEffect(() => {
+    const handleStorageChange = (event: StorageEvent) => {
+        if (event.key === 'chaintrace_active_sessions') {
+            const sessions = getActiveSessions();
+            const currentDeviceSessions = sessions[device.id] || [];
+            setOtherViewingUsers(currentDeviceSessions.filter(u => u.sessionId !== sessionId));
+        }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => {
+        window.removeEventListener('storage', handleStorageChange);
+    };
+  }, [device.id, sessionId]);
+  
 
   useEffect(() => {
     // When the device changes, update the config textarea with the latest config of the new device
@@ -275,6 +334,7 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
 
         {/* Right Side: Add New Config */}
         <div className="bg-slate-800 p-6 rounded-lg shadow-xl flex flex-col">
+          <CollaborationWarning users={otherViewingUsers} />
           <div>
             <h3 className="text-2xl font-bold text-white mb-4">提交新配置</h3>
             <p className="text-slate-400 mb-6">应用新配置将在链上创建一个新的、不可变的区块，操作员为 <span className="font-mono text-cyan-400">{currentUser.username}</span>。</p>
