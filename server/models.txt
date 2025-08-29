@@ -1,39 +1,43 @@
 from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, Mapped, mapped_column
+from sqlalchemy.orm import declarative_base
+from sqlalchemy import desc
 import datetime
-from .database import Base
+from typing import List
+
+# Fix: Changed relative import to absolute
+from database import Base
 
 class User(Base):
     __tablename__ = "users"
-    id = Column(Integer, primary_key=True, index=True)
-    username = Column(String, unique=True, index=True, nullable=False)
-    hashed_password = Column(String, nullable=False)
-    role = Column(String, nullable=False)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    username: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False)
+    hashed_password: Mapped[str] = mapped_column(String, nullable=False)
+    role: Mapped[str] = mapped_column(String, nullable=False)
 
 class Device(Base):
     __tablename__ = "devices"
-    id = Column(String, primary_key=True, index=True)
-    name = Column(String, nullable=False)
-    ip_address = Column(String, nullable=False)
-    type = Column(String, nullable=False)
+    id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    ip_address: Mapped[str] = mapped_column(String, nullable=False)
+    type: Mapped[str] = mapped_column(String, nullable=False)
     
-    # 建立与 Block 的关系，并按 index 降序排序
-    blocks = relationship("Block", back_populates="device", cascade="all, delete-orphan", order_by="desc(Block.index)")
+    blocks: Mapped[List["Block"]] = relationship("Block", back_populates="device", cascade="all, delete-orphan", order_by="desc(Block.index)")
 
 class Block(Base):
     __tablename__ = "blocks"
-    hash = Column(String, primary_key=True, index=True)
-    index = Column(Integer, nullable=False)
-    timestamp = Column(DateTime, default=datetime.datetime.utcnow)
-    prev_hash = Column(String, nullable=False)
-    device_id = Column(String, ForeignKey("devices.id"), nullable=False)
-    version = Column(Integer, nullable=False)
-    operator = Column(String, nullable=False)
-    config = Column(Text, nullable=False)
-    diff = Column(Text)
-    change_type = Column(String)
-    summary = Column(Text)
-    analysis = Column(Text)
-    security_risks = Column(Text)
+    hash: Mapped[str] = mapped_column(String, primary_key=True, index=True)
+    index: Mapped[int] = mapped_column(Integer, nullable=False)
+    timestamp: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
+    prev_hash: Mapped[str] = mapped_column(String, nullable=False)
+    device_id: Mapped[str] = mapped_column(String, ForeignKey("devices.id"), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    operator: Mapped[str] = mapped_column(String, nullable=False)
+    config: Mapped[str] = mapped_column(Text, nullable=False)
+    diff: Mapped[str | None] = mapped_column(Text)
+    change_type: Mapped[str | None] = mapped_column(String)
+    summary: Mapped[str | None] = mapped_column(Text)
+    analysis: Mapped[str | None] = mapped_column(Text)
+    security_risks: Mapped[str | None] = mapped_column(Text)
     
-    device = relationship("Device", back_populates="blocks")
+    device: Mapped["Device"] = relationship("Device", back_populates="blocks")

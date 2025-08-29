@@ -72,19 +72,24 @@ const App: React.FC = () => {
       setSettings(DEFAULT_SETTINGS);
     }
 
-    // Check for existing token to auto-login
+    // Check for existing token and validate it with the backend
     const token = apiService.getToken();
     if (token) {
-        // Here you would typically validate the token with the backend
-        // For this version, we'll assume the token is valid and fetch user data.
-        const user = apiService.getUserFromToken(token);
-        if (user) {
+        apiService.getCurrentUser()
+          .then(user => {
             setCurrentUser(user);
             setIsAuthenticated(true);
-        }
+          })
+          .catch(() => {
+            // Token is invalid or expired, log the user out
+            apiService.logout();
+          })
+          .finally(() => {
+            setIsLoading(false);
+          });
+    } else {
+      setIsLoading(false);
     }
-    setIsLoading(false);
-
   }, []);
 
   // Fetch devices when authenticated
@@ -169,6 +174,10 @@ const App: React.FC = () => {
   };
 
   const handleResetData = async () => {
+    if (currentUser?.role !== 'admin') {
+      toast.error('只有管理员才能重置数据。');
+      return;
+    }
     const isConfirmed = window.confirm("您确定要重置所有数据到初始状态吗？此操作将清空后端数据库并重新填充初始数据。");
     if (isConfirmed) {
       setIsLoading(true);
@@ -194,8 +203,16 @@ const App: React.FC = () => {
     }
     try {
       const newDevice = await apiService.addDevice(newDeviceData);
+      // After adding, fetch the full device with its new genesis block
+      const deviceWithChain = await apiService.getDeviceWithBlockchain(newDevice.id);
+      
       setDevices(prev => [...prev, newDevice]);
+      setBlockchains(prev => ({
+        ...prev,
+        [newDevice.id]: deviceWithChain.blocks,
+      }));
       setSelectedDevice(newDevice); // Navigate to new device
+      
       setIsAddDeviceModalOpen(false);
       toast.success(`设备 "${newDevice.name}" 已成功添加！`);
     } catch (error) {
@@ -327,6 +344,10 @@ const App: React.FC = () => {
   };
 
   const handleDeleteDevice = async (deviceId: string) => {
+    if (currentUser?.role !== 'admin') {
+      toast.error('只有管理员才能删除设备。');
+      return;
+    }
     const deviceToDelete = devices.find(d => d.id === deviceId);
     if (!deviceToDelete) return;
 
@@ -350,6 +371,20 @@ const App: React.FC = () => {
     }
   };
   
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+        <div className="text-center">
+          <svg className="animate-spin h-8 w-8 text-white mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          <p className="mt-4 text-slate-400">正在加载应用...</p>
+        </div>
+      </div>
+    );
+  }
+
   if (!isAuthenticated || !currentUser) {
     return (
         <div className="min-h-screen bg-slate-900 font-sans flex items-center justify-center">
@@ -394,6 +429,7 @@ const App: React.FC = () => {
             isLoading={isLoading}
             onResetData={handleResetData}
             onDeleteDevice={handleDeleteDevice}
+            currentUser={currentUser}
             onOpenAddDeviceModal={() => setIsAddDeviceModalOpen(true)}
           />
         )}

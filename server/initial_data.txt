@@ -1,0 +1,60 @@
+import logging
+from sqlalchemy.orm import Session
+
+# Fix: Changed relative imports to absolute
+from database import SessionLocal
+import crud, models, schemas
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+def init_db(db: Session) -> None:
+    # Check if data already exists to prevent re-seeding
+    if crud.get_user_by_username(db, username="admin"):
+        logger.info("Database already seeded. Skipping initial data creation.")
+        return
+
+    logger.info("Creating initial data...")
+
+    # --- Create Users ---
+    users_to_create = [
+        schemas.UserCreate(username="admin", password="admin", role="admin"),
+        schemas.UserCreate(username="operator1", password="password", role="operator"),
+    ]
+    for user_in in users_to_create:
+        crud.create_user(db, user=user_in)
+    
+    logger.info("Initial users created.")
+
+    # --- Create Devices and their Genesis Blocks ---
+    devices_to_create = [
+        schemas.DeviceCreate(id="RTR01-NYC", name="Core Router 1 NYC", ip_address="192.168.1.1", type="Router"),
+        schemas.DeviceCreate(id="SW01-SFO", name="Access Switch 1 SFO", ip_address="10.10.5.254", type="Switch"),
+        schemas.DeviceCreate(id="FW01-LON", name="Perimeter Firewall London", ip_address="203.0.113.1", type="Firewall"),
+    ]
+    
+    for device_in in devices_to_create:
+        crud.create_device(db=db, device=device_in)
+        
+    logger.info("Initial devices and their genesis blocks created.")
+    logger.info("Initial data seeding complete.")
+
+
+def reset_db(db: Session) -> None:
+    logger.info("Resetting database...")
+    # This is a destructive operation. Be careful.
+    # The drop_all/create_all cycle is simple and effective for SQLite.
+    # For production databases like PostgreSQL, you might want a more nuanced approach.
+    models.Base.metadata.drop_all(bind=db.get_bind())
+    models.Base.metadata.create_all(bind=db.get_bind())
+    logger.info("All tables dropped and recreated.")
+    init_db(db) # Re-seed the initial data
+    logger.info("Database has been reset and re-seeded.")
+
+
+if __name__ == "__main__":
+    logger.info("Running data initialization script directly.")
+    db = SessionLocal()
+    init_db(db)
+    db.close()
+    logger.info("Finished data initialization script.")

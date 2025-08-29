@@ -55,15 +55,14 @@ class ApiService {
         return this.token;
     }
     
+    // This function is now only a fallback for decoding, but getCurrentUser is preferred.
     public getUserFromToken(token: string): User | null {
         try {
             const payloadBase64 = token.split('.')[1];
             const decodedPayload = atob(payloadBase64);
             const { sub } = JSON.parse(decodedPayload);
-            // This is a simplified user object. A dedicated /users/me endpoint is better.
-            // For now, we assume the username is the 'sub' and we don't know the role from the token.
-            // This will be improved when the backend provides a /users/me endpoint.
-            // Let's manually assign role based on username for now.
+            // This is a simplified user object. The role must be fetched from the server.
+            // This is a temporary assignment for UI purposes before full user object is fetched.
             const role = sub === 'admin' ? 'admin' : 'operator';
             return { username: sub, role };
         } catch (error) {
@@ -89,11 +88,12 @@ class ApiService {
         this.token = data.access_token;
         sessionStorage.setItem('chaintrace_token', this.token);
         
-        // Decode token to get user info (simplified)
-        const user = this.getUserFromToken(this.token);
-        if(!user) throw new Error("Invalid token received from server.");
-        
-        return user;
+        // After getting token, fetch the full user profile to get all details, including role.
+        return this.getCurrentUser();
+    }
+    
+    getCurrentUser(): Promise<User> {
+        return this.request<User>('/api/users/me');
     }
 
     logout() {
