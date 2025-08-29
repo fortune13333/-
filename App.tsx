@@ -11,10 +11,14 @@ import { Toaster, toast } from 'react-hot-toast';
 import { calculateBlockHash } from './utils/crypto';
 
 const DEFAULT_SETTINGS: AppSettings = {
-  aiEnabled: true,
-  analysisApiUrl: '',
+  ai: {
+    analysis: { enabled: true, apiUrl: '' },
+    commandGeneration: { enabled: true, apiUrl: '' },
+    configCheck: { enabled: true, apiUrl: '' },
+  },
   agentApiUrl: '',
 };
+
 
 const App: React.FC = () => {
   const [devices, setDevices] = useState<Device[]>([]);
@@ -41,7 +45,33 @@ const App: React.FC = () => {
       }
       
       if (storedSettings) {
-        setSettings(JSON.parse(storedSettings));
+        const parsed = JSON.parse(storedSettings);
+        // Migration from old settings structure
+        if (parsed.hasOwnProperty('aiEnabled')) {
+          const migratedSettings: AppSettings = {
+            ai: {
+              analysis: { enabled: parsed.aiEnabled, apiUrl: parsed.analysisApiUrl || '' },
+              commandGeneration: { enabled: parsed.aiEnabled, apiUrl: '' },
+              configCheck: { enabled: parsed.aiEnabled, apiUrl: '' },
+            },
+            agentApiUrl: parsed.agentApiUrl || '',
+          };
+          setSettings(migratedSettings);
+        } else {
+          // For settings already in new format, merge with default to ensure all keys are present
+          const mergedSettings: AppSettings = {
+            ...DEFAULT_SETTINGS,
+            ...parsed,
+            ai: {
+              ...DEFAULT_SETTINGS.ai,
+              ...(parsed.ai || {}),
+              analysis: { ...DEFAULT_SETTINGS.ai.analysis, ...(parsed.ai?.analysis || {}) },
+              commandGeneration: { ...DEFAULT_SETTINGS.ai.commandGeneration, ...(parsed.ai?.commandGeneration || {}) },
+              configCheck: { ...DEFAULT_SETTINGS.ai.configCheck, ...(parsed.ai?.configCheck || {}) },
+            },
+          };
+          setSettings(mergedSettings);
+        }
       } else {
         setSettings(DEFAULT_SETTINGS);
       }
@@ -69,7 +99,15 @@ const App: React.FC = () => {
   }, [blockchains, devices, settings, isLoading]);
 
   const handleUpdateSettings = (newSettings: Partial<AppSettings>) => {
-    setSettings(prev => ({ ...prev, ...newSettings }));
+    // Deep merge for nested AI settings
+    setSettings(prev => ({
+        ...prev,
+        ...newSettings,
+        ai: {
+            ...prev.ai,
+            ...(newSettings.ai || {}),
+        }
+    }));
   };
 
   const handleSelectDevice = (device: Device) => {
@@ -143,7 +181,7 @@ const App: React.FC = () => {
     }
     
     setIsLoading(true);
-    const toastId = toast.loading(settings.aiEnabled ? '正在提交并请求 AI 分析...' : '正在提交到区块链...');
+    const toastId = toast.loading(settings.ai.analysis.enabled ? '正在提交并请求 AI 分析...' : '正在提交到区块链...');
     
     try {
       const currentChain = blockchains[deviceId] || [];
@@ -160,7 +198,7 @@ const App: React.FC = () => {
         [deviceId]: [...currentChain, newBlock]
       }));
       
-      if (settings.aiEnabled) {
+      if (settings.ai.analysis.enabled) {
           if (aiSuccess) {
             toast.success('配置已成功添加到区块链！', { id: toastId });
           } else {

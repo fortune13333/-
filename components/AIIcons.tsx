@@ -1,7 +1,7 @@
 import React from 'react';
 
 export const BrainIcon: React.FC = () => (
-    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M4.871 14.85c-1.333-1.333-2.121-3.033-2.121-4.85s.788-3.517 2.121-4.85m14.258 9.7c1.333-1.333 2.121-3.033 2.121-4.85s-.788-3.517-2.121-4.85M9 7.503v.004M12 7.503v.004M15 7.503v.004m-3 3.002v.004m-3-.004v.004m6 .004v.004m-6 3.002v.004m3-.004v.004m3 .004v.004m-9-3.002h.004M9 15h.004M12 15h.004m3 0h.004m-3-3.002h.004m3 0h.004M9 12h.004" />
         <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9 9 0 1 1 0-18 9 9 0 0 1 0 18Z" />
     </svg>
@@ -34,6 +34,12 @@ export const DownloadIcon: React.FC = () => (
 export const PlusIcon: React.FC<{className?: string}> = ({ className = "h-5 w-5" }) => (
     <svg xmlns="http://www.w3.org/2000/svg" className={className} viewBox="0 0 20 20" fill="currentColor">
         <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+    </svg>
+);
+
+export const SparklesIcon: React.FC<{className?: string}> = ({ className = "h-5 w-5" }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
     </svg>
 );
 

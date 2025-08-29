@@ -1,6 +1,5 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
-import { Block, BlockData, AppSettings } from '../types';
+import { Block, BlockData, AppSettings, Device } from '../types';
 import { calculateBlockHash } from '../utils/crypto';
 
 // Initialize the Google AI client
@@ -59,13 +58,13 @@ const addNewConfiguration = async (
   currentChain: Block[],
   settings: AppSettings
 ): Promise<{ newBlock: Block; aiSuccess: boolean }> => {
-  const { aiEnabled, analysisApiUrl } = settings;
+  const { enabled: analysisEnabled, apiUrl: analysisApiUrl } = settings.ai.analysis;
   const lastBlock = currentChain[currentChain.length - 1];
   
   let analysisResult;
   let aiSuccess = false;
 
-  if (aiEnabled) {
+  if (analysisEnabled) {
     if (analysisApiUrl) {
       console.log("Creating new block with custom API analysis...");
       try {
@@ -193,6 +192,141 @@ const addNewConfiguration = async (
   return { newBlock, aiSuccess };
 };
 
+
+const generateConfigFromPrompt = async (
+  userInput: string,
+  deviceType: Device['type'],
+  currentConfig: string,
+  settings: AppSettings
+): Promise<string> => {
+    if (!settings.ai.commandGeneration.enabled) {
+        throw new Error('AI 命令生成功能已被禁用。');
+    }
+    const { apiUrl } = settings.ai.commandGeneration;
+    
+    // Simple mapping from our types to potential netmiko-style types for better prompts
+    const syntaxType = {
+        'Router': 'Cisco IOS style',
+        'Switch': 'Cisco IOS style',
+        'Firewall': 'Cisco ASA style'
+    }[deviceType];
+    
+    if (apiUrl) {
+        console.log("Generating config with custom command generation API...");
+        try {
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userInput, deviceType, currentConfig, syntaxType }),
+            });
+            if (!response.ok) throw new Error(`Custom API failed with status: ${response.status}`);
+            const data = await response.json();
+            return data.commands || '';
+        } catch (error) {
+            console.error("Custom command generation API call failed:", error);
+            const msg = error instanceof Error ? error.message : "An unknown error occurred.";
+            throw new Error(`自定义 AI 接口调用失败: ${msg}`);
+        }
+    }
+
+    const prompt = `
+    You are an expert network configuration assistant.
+    The target device uses ${syntaxType} syntax.
+    The user wants to achieve the following: "${userInput}".
+
+    Here is the current running configuration for context:
+    ---
+    ${currentConfig}
+    ---
+
+    Your task is to generate ONLY the necessary configuration commands to fulfill the user's request.
+    - Do not include any explanations, introductory phrases like "Here are the commands:", or markdown code blocks.
+    - Output only the raw command lines, each on a new line.
+    - If the request requires entering a specific configuration mode (e.g., 'configure terminal', 'interface X'), include those commands.
+    `;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: prompt,
+        });
+        return response.text.trim();
+    } catch (error) {
+        console.error("Gemini config generation failed:", error);
+        const errorMessage = error instanceof Error ? error.message : "An unknown error occurred with the AI model.";
+        throw new Error(`AI command generation failed: ${errorMessage}`);
+    }
+};
+
+const checkConfiguration = async (
+    config: string,
+    deviceType: Device['type'],
+    settings: AppSettings
+): Promise<string> => {
+    if (!settings.ai.configCheck.enabled) {
+        throw new Error('AI 配置体检功能已被禁用。');
+    }
+    const { apiUrl } = settings.ai.configCheck;
+
+    const syntaxType = {
+        'Router': 'Cisco IOS style',
+        'Switch': 'Cisco IOS style',
+        'Firewall': 'Cisco ASA style'
+    }[deviceType];
+
+    if (apiUrl) {
+        console.log("Checking config with custom check API...");
+        try {
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ config, deviceType, syntaxType }),
+            });
+            if (!response.ok) throw new Error(`Custom API failed with status: ${response.status}`);
+            const data = await response.json();
+            return data.report || '自定义接口未返回报告。';
+        } catch (error) {
+            console.error("Custom config check API call failed:", error);
+            const msg = error instanceof Error ? error.message : "An unknown error occurred.";
+            throw new Error(`自定义 AI 接口调用失败: ${msg}`);
+        }
+    }
+
+    const prompt = `
+    You are an expert network security auditor and configuration analyst.
+    The target device uses ${syntaxType} syntax.
+    Analyze the following complete network device configuration.
+    Your task is to:
+    1. Identify any potential security vulnerabilities (e.g., open ports, weak passwords, insecure protocols).
+    2. Check for violations of common network best practices (e.g., lack of logging, missing ACLs, improper STP configuration).
+    3. Find any logical errors or inconsistencies in the configuration.
+    4. Provide actionable recommendations for improvement, presented clearly using bullet points.
+    
+    If no issues are found, state that the configuration appears to be solid and well-configured.
+    Provide the response as a single block of text in Simplified Chinese.
+    Do not include any other text or markdown formatting.
+
+    Configuration to analyze:
+    ---
+    ${config}
+    ---
+    `;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: prompt,
+        });
+        return response.text.trim();
+    } catch (error) {
+        console.error("Gemini config check failed:", error);
+        const errorMessage = error instanceof Error ? error.message : "An unknown error occurred with the AI model.";
+        throw new Error(`AI config check failed: ${errorMessage}`);
+    }
+};
+
 export const geminiService = {
   addNewConfiguration,
+  generateConfigFromPrompt,
+  checkConfiguration,
 };

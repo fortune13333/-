@@ -26,8 +26,16 @@ export interface Block {
   hash: string;
 }
 
+export interface AIServiceSettings {
+  enabled: boolean;
+  apiUrl?: string;
+}
+
 export interface AppSettings {
-  aiEnabled: boolean;
-  analysisApiUrl?: string;
+  ai: {
+    analysis: AIServiceSettings;
+    commandGeneration: AIServiceSettings;
+    configCheck: AIServiceSettings;
+  };
   agentApiUrl?: string;
 }

@@ -6,7 +6,8 @@ import VerificationModal, { VerificationResult } from './VerificationModal';
 import Loader from './Loader';
 import { verifyChain } from '../utils/crypto';
 import { toast } from 'react-hot-toast';
-import { DownloadIcon, PlusIcon } from './AIIcons';
+import { DownloadIcon, PlusIcon, SparklesIcon, BrainIcon } from './AIIcons';
+import { geminiService } from '../services/geminiService';
 
 interface DeviceDetailsProps {
   device: Device;
@@ -30,19 +31,36 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({ device, allDevices, chain
   const lastBlock = chain[chain.length - 1];
   const [newConfig, setNewConfig] = useState(lastBlock?.data?.config || '');
   const [operator, setOperator] = useState('net_admin');
-  const [selectedBlock, setSelectedBlock] = useState<Block | null>(null);
+  const [selectedBlockInfo, setSelectedBlockInfo] = useState<{ block: Block; prevConfig: string } | null>(null);
   
   const [isVerifying, setIsVerifying] = useState(false);
   const [isVerificationModalOpen, setIsVerificationModalOpen] = useState(false);
   const [verificationResults, setVerificationResults] = useState<VerificationResult[]>([]);
   const [isFetchingConfig, setIsFetchingConfig] = useState(false);
+  
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
 
+  const [isCheckingConfig, setIsCheckingConfig] = useState(false);
+  const [configCheckResult, setConfigCheckResult] = useState<string | null>(null);
 
   useEffect(() => {
     // When the device changes, update the config textarea with the latest config of the new device
     const newLastBlock = chain[chain.length - 1];
     setNewConfig(newLastBlock?.data?.config || '');
+    setConfigCheckResult(null); // Reset check result on device change
   }, [device, chain]);
+  
+  useEffect(() => {
+    // Reset check result if config text is manually changed
+    setConfigCheckResult(null);
+  }, [newConfig]);
+
+  const handleSelectBlock = (block: Block) => {
+    const prevBlock = chain.find(b => b.index === block.index - 1);
+    const prevConfig = prevBlock ? prevBlock.data.config : '';
+    setSelectedBlockInfo({ block, prevConfig });
+  };
 
   const handleFetchFromDevice = async () => {
     if (!settings.agentApiUrl) {
@@ -125,6 +143,52 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({ device, allDevices, chain
 
     setIsVerifying(false);
   };
+  
+  const handleGenerateConfig = async () => {
+      if (!aiPrompt.trim()) {
+          toast.error('请输入您的配置意图。');
+          return;
+      }
+      setIsGenerating(true);
+      const toastId = toast.loading('AI 助手正在生成命令...');
+      try {
+          const generatedCommands = await geminiService.generateConfigFromPrompt(aiPrompt, device.type, newConfig, settings);
+          if (generatedCommands) {
+              // Append the new commands to the existing config
+              setNewConfig(prev => `${prev.trim()}\n${generatedCommands}`.trim());
+              setAiPrompt(''); // Clear the input field
+              toast.success('AI 命令已生成并追加！', { id: toastId });
+          } else {
+              toast.error('AI 未能生成命令，请检查您的输入或稍后再试。', { id: toastId });
+          }
+      } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : '发生未知错误。';
+          toast.error(`生成失败: ${errorMessage}`, { id: toastId });
+      } finally {
+          setIsGenerating(false);
+      }
+  };
+
+  const handleConfigCheck = async () => {
+    if (!newConfig.trim()) {
+      toast.error('配置文本不能为空。');
+      return;
+    }
+    setIsCheckingConfig(true);
+    setConfigCheckResult(null);
+    const toastId = toast.loading('AI 正在进行配置体检...');
+    try {
+      const report = await geminiService.checkConfiguration(newConfig, device.type, settings);
+      setConfigCheckResult(report);
+      toast.success('配置体检完成！', { id: toastId });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '发生未知错误。';
+      toast.error(`体检失败: ${errorMessage}`, { id: toastId });
+    } finally {
+      setIsCheckingConfig(false);
+    }
+  };
+
 
   const sortedChain = [...chain].sort((a, b) => b.index - a.index);
 
@@ -186,7 +250,7 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({ device, allDevices, chain
           </div>
           <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2">
             {sortedChain.map(block => (
-              <HistoryItem key={block.hash} block={block} onSelectBlock={() => setSelectedBlock(block)} />
+              <HistoryItem key={block.hash} block={block} onSelectBlock={() => handleSelectBlock(block)} />
             ))}
             {sortedChain.length === 0 && (
                 <div className="text-center py-8 text-slate-500">
@@ -198,10 +262,12 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({ device, allDevices, chain
         </div>
 
         {/* Right Side: Add New Config */}
-        <div className="bg-slate-800 p-6 rounded-lg shadow-xl">
-          <h3 className="text-2xl font-bold text-white mb-4">提交新配置</h3>
-          <p className="text-slate-400 mb-6">应用新配置将在链上创建一个新的、不可变的区块。</p>
-          <form onSubmit={handleSubmit}>
+        <div className="bg-slate-800 p-6 rounded-lg shadow-xl flex flex-col">
+          <div>
+            <h3 className="text-2xl font-bold text-white mb-4">提交新配置</h3>
+            <p className="text-slate-400 mb-6">应用新配置将在链上创建一个新的、不可变的区块。</p>
+          </div>
+          <form onSubmit={handleSubmit} className="flex flex-col flex-grow">
             <div className="mb-4">
               <label htmlFor="operator" className="block text-sm font-medium text-slate-300 mb-2">操作员</label>
               <input 
@@ -213,34 +279,89 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({ device, allDevices, chain
                 required
               />
             </div>
-            <div className="mb-4">
+            <div className="mb-4 flex-grow flex flex-col">
                <div className="flex justify-between items-center mb-2">
                  <label htmlFor="config" className="block text-sm font-medium text-slate-300">配置文本</label>
-                 {settings.agentApiUrl && (
-                     <button
-                        type="button"
-                        onClick={handleFetchFromDevice}
-                        disabled={isFetchingConfig || isLoading}
-                        className="flex items-center gap-2 text-xs bg-slate-700 hover:bg-slate-600 disabled:bg-slate-900 disabled:text-slate-500 disabled:cursor-not-allowed text-white font-bold py-1 px-3 rounded-md transition-colors"
-                     >
-                        {isFetchingConfig ? <Loader /> : <DownloadIcon />}
-                        <span>从设备获取</span>
-                     </button>
-                 )}
+                 <div className="flex items-center gap-2">
+                    {settings.ai.configCheck.enabled && (
+                        <button
+                            type="button"
+                            onClick={handleConfigCheck}
+                            disabled={isCheckingConfig || isLoading}
+                            className="flex items-center gap-2 text-xs bg-slate-700 hover:bg-slate-600 disabled:bg-slate-900 disabled:text-slate-500 disabled:cursor-not-allowed text-white font-bold py-1 px-3 rounded-md transition-colors"
+                        >
+                            {isCheckingConfig ? <Loader /> : <BrainIcon />}
+                            <span>AI 配置体检</span>
+                        </button>
+                    )}
+                    {settings.agentApiUrl && (
+                        <button
+                            type="button"
+                            onClick={handleFetchFromDevice}
+                            disabled={isFetchingConfig || isLoading}
+                            className="flex items-center gap-2 text-xs bg-slate-700 hover:bg-slate-600 disabled:bg-slate-900 disabled:text-slate-500 disabled:cursor-not-allowed text-white font-bold py-1 px-3 rounded-md transition-colors"
+                        >
+                            {isFetchingConfig ? <Loader /> : <DownloadIcon />}
+                            <span>从设备获取</span>
+                        </button>
+                    )}
+                 </div>
                </div>
               <textarea
                 id="config"
-                rows={15}
                 value={newConfig}
                 onChange={(e) => setNewConfig(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-md p-2 font-mono text-sm text-slate-200 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                className="w-full flex-grow bg-slate-900 border border-slate-700 rounded-md p-2 font-mono text-sm text-slate-200 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                 placeholder="在此处输入完整的设备配置..."
               />
             </div>
+
+            {isCheckingConfig && (
+                <div className="mb-4 text-center"><Loader /></div>
+            )}
+
+            {configCheckResult && (
+                <div className="mb-4 p-3 rounded-md bg-slate-900 border border-slate-700 max-h-40 overflow-y-auto">
+                    <h4 className="flex items-center gap-2 font-semibold text-slate-300 mb-2 text-sm">
+                        <BrainIcon /> AI 配置体检报告
+                    </h4>
+                    <p className="text-xs text-slate-300 whitespace-pre-wrap">{configCheckResult}</p>
+                </div>
+            )}
+            
+            {settings.ai.commandGeneration.enabled && (
+                <div className="mb-6 bg-slate-900/50 p-3 rounded-md">
+                    <label htmlFor="ai-prompt" className="flex items-center gap-2 text-sm font-medium text-slate-300 mb-2">
+                        <SparklesIcon className="h-5 w-5 text-cyan-400" />
+                        <span>AI 助手</span>
+                    </label>
+                    <div className="flex items-center gap-2">
+                        <input
+                            type="text"
+                            id="ai-prompt"
+                            value={aiPrompt}
+                            onChange={(e) => setAiPrompt(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleGenerateConfig(); }}}
+                            className="flex-grow bg-slate-700 border border-slate-600 rounded-md p-2 text-slate-200 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 text-sm"
+                            placeholder="例如：为 VLAN 10 添加端口 G0/1"
+                            disabled={isGenerating}
+                        />
+                        <button
+                            type="button"
+                            onClick={handleGenerateConfig}
+                            disabled={isGenerating || isLoading}
+                            className="flex-shrink-0 flex items-center justify-center gap-2 w-32 bg-slate-700 hover:bg-cyan-600/50 text-white font-bold py-2 px-3 rounded-md transition-colors text-sm disabled:opacity-50 disabled:cursor-wait"
+                        >
+                           {isGenerating ? <Loader/> : '生成命令'}
+                        </button>
+                    </div>
+                </div>
+            )}
+
             <button
               type="submit"
-              disabled={isLoading || isVerifying || isFetchingConfig}
-              className="w-full flex justify-center items-center gap-2 bg-cyan-600 hover:bg-cyan-700 disabled:bg-slate-600 text-white font-bold py-2 px-4 rounded-md transition-colors"
+              disabled={isLoading || isVerifying || isFetchingConfig || isGenerating || isCheckingConfig}
+              className="w-full flex justify-center items-center gap-2 bg-cyan-600 hover:bg-cyan-700 disabled:bg-slate-600 text-white font-bold py-2 px-4 rounded-md transition-colors mt-auto"
             >
               {isLoading ? <Loader /> : (settings.agentApiUrl ? '推送到设备并记录' : '提交到区块链')}
             </button>
@@ -248,8 +369,12 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({ device, allDevices, chain
         </div>
       </div>
 
-      {selectedBlock && (
-        <BlockDetailsModal block={selectedBlock} onClose={() => setSelectedBlock(null)} />
+      {selectedBlockInfo && (
+        <BlockDetailsModal 
+            block={selectedBlockInfo.block} 
+            prevConfig={selectedBlockInfo.prevConfig}
+            onClose={() => setSelectedBlockInfo(null)} 
+        />
       )}
       
       {isVerificationModalOpen && (
