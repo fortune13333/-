@@ -7,6 +7,7 @@ import { toast } from 'react-hot-toast';
 import { DownloadIcon, PlusIcon, SparklesIcon, BrainIcon } from './AIIcons';
 import { geminiService } from '../services/geminiService';
 import CollaborationStatus from './CollaborationStatus';
+import { WS_BASE_URL } from '../constants';
 
 interface DeviceDetailsProps {
   device: Device;
@@ -66,8 +67,8 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
         return;
     }
 
-    // Connect to WebSocket endpoint. Note: Use 'ws' not 'http'.
-    const socket = new WebSocket(`ws://127.0.0.1:8000/ws/${device.id}/${currentUser.username}`);
+    // Connect to WebSocket endpoint using the centralized base URL.
+    const socket = new WebSocket(`${WS_BASE_URL}/ws/${device.id}/${currentUser.username}`);
     socketRef.current = socket;
 
     socket.onopen = () => {

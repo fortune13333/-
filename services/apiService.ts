@@ -1,6 +1,5 @@
 import { Device, Block, User } from '../types';
-
-const API_BASE_URL = 'http://127.0.0.1:8000'; // Your backend server URL
+import { API_BASE_URL } from '../constants';
 
 interface ApiErrorData {
     detail: string | { msg: string }[];
@@ -55,24 +54,6 @@ class ApiService {
         return this.token;
     }
     
-    // This function is now only a fallback for decoding, but getCurrentUser is preferred.
-    public getUserFromToken(token: string): User | null {
-        try {
-            const payloadBase64 = token.split('.')[1];
-            const decodedPayload = atob(payloadBase64);
-            const { sub } = JSON.parse(decodedPayload);
-            // This is a simplified user object. The role must be fetched from the server.
-            // This is a temporary assignment for UI purposes before full user object is fetched.
-            const role = sub === 'admin' ? 'admin' : 'operator';
-            return { username: sub, role };
-        } catch (error) {
-            console.error("Failed to decode token", error);
-            this.logout();
-            return null;
-        }
-    }
-
-
     // --- Authentication ---
     async login(username: string, password: string):Promise<User> {
         const formData = new URLSearchParams();

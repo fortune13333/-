@@ -138,17 +138,30 @@ const App: React.FC = () => {
   };
 
   const handleUpdateSettings = (newSettings: Partial<AppSettings>) => {
-    setSettings(prev => ({
+    setSettings(prev => {
+      // Perform a deep merge to correctly handle partial updates to nested objects.
+      const updatedSettings = {
         ...prev,
         ...newSettings,
         ai: {
-            ...prev.ai,
-            ...(newSettings.ai || {}),
-            analysis: { ...DEFAULT_SETTINGS.ai.analysis, ...(newSettings.ai?.analysis || {}) },
-            commandGeneration: { ...DEFAULT_SETTINGS.ai.commandGeneration, ...(newSettings.ai?.commandGeneration || {}) },
-            configCheck: { ...DEFAULT_SETTINGS.ai.configCheck, ...(newSettings.ai?.configCheck || {}) },
+          ...prev.ai,
+          ...(newSettings.ai || {}),
+          analysis: {
+            ...prev.ai.analysis,
+            ...(newSettings.ai?.analysis || {}),
+          },
+          commandGeneration: {
+            ...prev.ai.commandGeneration,
+            ...(newSettings.ai?.commandGeneration || {}),
+          },
+          configCheck: {
+            ...prev.ai.configCheck,
+            ...(newSettings.ai?.configCheck || {}),
+          },
         },
-    }));
+      };
+      return updatedSettings;
+    });
   };
 
   const handleSelectDevice = async (device: Device) => {
