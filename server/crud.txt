@@ -1,28 +1,8 @@
-import json
-import hashlib
-from datetime import datetime
 from sqlalchemy.orm import Session
+from sqlalchemy import desc
+import hashlib
+import datetime
 from . import models, schemas, security
-
-# --- Hashing Utility (Python equivalent of frontend's calculateBlockHash) ---
-def calculate_block_hash(block_dict: dict) -> str:
-    # Ensure a deterministic order for JSON serialization
-    # separators=(',', ':') removes whitespace for a compact representation
-    block_data_str = json.dumps({
-        "deviceId": block_dict["device_id"],
-        "version": block_dict["version"],
-        "operator": block_dict["operator"],
-        "config": block_dict["config"],
-        "diff": block_dict["diff"],
-        "changeType": block_dict["change_type"],
-        "summary": block_dict["summary"],
-        "analysis": block_dict["analysis"],
-        "security_risks": block_dict["security_risks"]
-    }, sort_keys=True, separators=(',', ':'))
-
-    block_content = f"{block_dict['index']}{block_dict['timestamp']}{block_data_str}{block_dict['prev_hash']}"
-    
-    return hashlib.sha256(block_content.encode()).hexdigest()
 
 # --- User CRUD ---
 def get_user_by_username(db: Session, username: str):
@@ -37,45 +17,15 @@ def create_user(db: Session, user: schemas.UserCreate):
     return db_user
 
 # --- Device CRUD ---
-def get_devices(db: Session):
-    return db.query(models.Device).all()
-
-def get_device_with_blockchain(db: Session, device_id: str):
+def get_device(db: Session, device_id: str):
     return db.query(models.Device).filter(models.Device.id == device_id).first()
 
-def create_device_with_genesis_block(db: Session, device: schemas.DeviceCreate):
-    # 1. Create the device entry
+def get_devices(db: Session, skip: int = 0, limit: int = 100):
+    return db.query(models.Device).offset(skip).limit(limit).all()
+
+def create_device(db: Session, device: schemas.DeviceCreate):
     db_device = models.Device(**device.dict())
     db.add(db_device)
-    
-    # 2. Create the genesis block
-    genesis_config = f"hostname {device.name}\n!\nend"
-    genesis_diff = f"+ {genesis_config.replace('\n', '\n+ ')}"
-    
-    genesis_block_dict = {
-        'index': 0,
-        'timestamp': datetime.utcnow().isoformat() + "Z",
-        'device_id': device.id,
-        'version': 1,
-        'operator': 'system_init',
-        'config': genesis_config,
-        'diff': genesis_diff,
-        'change_type': 'initial',
-        'summary': '初始系统配置。',
-        'analysis': '这是设备的第一个配置区块，用于建立基线。',
-        'security_risks': '无。这是一个标准的初始设置。',
-        'prev_hash': '0',
-    }
-    
-    # Calculate hash for the genesis block
-    genesis_hash = calculate_block_hash(genesis_block_dict)
-    
-    db_block = models.Block(
-        hash=genesis_hash,
-        **genesis_block_dict
-    )
-    
-    db.add(db_block)
     db.commit()
     db.refresh(db_device)
     return db_device
@@ -89,46 +39,30 @@ def delete_device(db: Session, device_id: str):
 
 
 # --- Block CRUD ---
-def get_last_block_for_device(db: Session, device_id: str):
-    return db.query(models.Block)\
-             .filter(models.Block.device_id == device_id)\
-             .order_by(models.Block.index.desc())\
-             .first()
+def get_latest_block_for_device(db: Session, device_id: str):
+    return db.query(models.Block).filter(models.Block.device_id == device_id).order_by(desc(models.Block.index)).first()
 
-def create_device_block(db: Session, block_data: schemas.BlockCreate, device_id: str):
-    last_block = get_last_block_for_device(db, device_id)
-    if not last_block:
-        return None # Should not happen if device exists
-
-    new_index = last_block.index + 1
-    new_version = last_block.version + 1
+def create_device_block(db: Session, device_id: str, block_data: schemas.BlockCreate):
+    last_block = get_latest_block_for_device(db, device_id)
     
-    new_block_dict = {
-        'index': new_index,
-        'timestamp': datetime.utcnow().isoformat() + "Z",
-        'device_id': device_id,
-        'version': new_version,
-        'prev_hash': last_block.hash,
-        **block_data.dict() # operator, config, diff, summary, etc.
-    }
+    index = (last_block.index + 1) if last_block else 0
+    version = (last_block.version + 1) if last_block else 1
+    prev_hash = last_block.hash if last_block else "0"
+    timestamp = datetime.datetime.utcnow()
 
-    new_hash = calculate_block_hash(new_block_dict)
+    block_string = f"{index}{timestamp}{prev_hash}{device_id}{version}{block_data.operator}{block_data.config}"
+    hash_value = hashlib.sha256(block_string.encode()).hexdigest()
 
     db_block = models.Block(
-        hash=new_hash,
-        **new_block_dict
+        hash=hash_value,
+        index=index,
+        timestamp=timestamp,
+        prev_hash=prev_hash,
+        device_id=device_id,
+        version=version,
+        **block_data.dict()
     )
-    
     db.add(db_block)
     db.commit()
     db.refresh(db_block)
     return db_block
-
-# --- Database Reset ---
-def reset_database(db: Session):
-    # A simple and potentially slow way for this app's scale.
-    # For large dbs, dropping tables is faster.
-    db.query(models.Block).delete()
-    db.query(models.Device).delete()
-    db.query(models.User).delete()
-    db.commit()

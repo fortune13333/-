@@ -88,11 +88,11 @@ const SideBySideDiffView: React.FC<{ oldConfig: string; newConfig: string; block
                     <tr>
                         <th className="w-10 p-2 text-slate-500 text-right font-normal select-none">-</th>
                         <th className="p-2 text-left font-semibold text-slate-300 border-r border-slate-700">
-                            原始配置 {block.index > 0 ? `(版本 ${block.data.version - 1})` : '(创世区块)'}
+                            原始配置 {block.index > 0 ? `(版本 ${block.version - 1})` : '(创世区块)'}
                         </th>
                         <th className="w-10 p-2 text-slate-500 text-right font-normal select-none">+</th>
                         <th className="p-2 text-left font-semibold text-slate-300">
-                            新配置 (版本 {block.data.version})
+                            新配置 (版本 {block.version})
                         </th>
                     </tr>
                 </thead>
@@ -164,7 +164,7 @@ const BlockDetailsModal: React.FC<BlockDetailsModalProps> = ({ block, prevConfig
         onClick={e => e.stopPropagation()}
       >
         <div className="flex-shrink-0 bg-slate-800/80 backdrop-blur-sm p-4 border-b border-slate-700 flex justify-between items-center z-10">
-          <h2 className="text-xl font-bold text-white">区块 #{block.index} - 版本 {block.data.version}</h2>
+          <h2 className="text-xl font-bold text-white">区块 #{block.index} - 版本 {block.version}</h2>
           <button onClick={onClose} className="text-slate-400 hover:text-white text-3xl leading-none">&times;</button>
         </div>
         
@@ -175,17 +175,17 @@ const BlockDetailsModal: React.FC<BlockDetailsModalProps> = ({ block, prevConfig
             <div className="bg-slate-900/50 p-4 rounded-md space-y-4 text-sm">
               <div>
                 <h4 className="font-semibold text-slate-400 mb-1">变更摘要</h4>
-                <p className="text-slate-200">{block.data.summary}</p>
+                <p className="text-slate-200">{block.summary}</p>
               </div>
                <hr className="border-slate-700"/>
               <div>
                 <h4 className="font-semibold text-slate-400 mb-1">详细分析</h4>
-                <p className="text-slate-200 whitespace-pre-wrap">{block.data.analysis}</p>
+                <p className="text-slate-200 whitespace-pre-wrap">{block.analysis}</p>
               </div>
                <hr className="border-slate-700"/>
               <div>
                 <h4 className="font-semibold text-slate-400 mb-1">安全评估</h4>
-                <SecurityAssessment risks={block.data.security_risks} />
+                <SecurityAssessment risks={block.security_risks} />
               </div>
             </div>
           </div>
@@ -193,7 +193,7 @@ const BlockDetailsModal: React.FC<BlockDetailsModalProps> = ({ block, prevConfig
           {/* Diff View Section */}
           <div>
             <h3 className="text-lg font-semibold text-slate-300 mb-3">配置差异</h3>
-            <SideBySideDiffView oldConfig={prevConfig} newConfig={block.data.config} block={block}/>
+            <SideBySideDiffView oldConfig={prevConfig} newConfig={block.config} block={block}/>
           </div>
           
           {/* Block Details and Hashes */}
@@ -202,8 +202,8 @@ const BlockDetailsModal: React.FC<BlockDetailsModalProps> = ({ block, prevConfig
               <h4 className="font-semibold text-slate-300 mb-2">区块元数据</h4>
               <ul className="space-y-2 bg-slate-900/50 p-3 rounded-md">
                 <li className="flex justify-between"><span className="text-slate-400">时间戳:</span> <span className="text-slate-200">{new Date(block.timestamp).toLocaleString()}</span></li>
-                <li className="flex justify-between"><span className="text-slate-400">操作员:</span> <span className="font-mono bg-slate-700 px-2 py-0.5 rounded">{block.data.operator}</span></li>
-                <li className="flex justify-between"><span className="text-slate-400">变更类型:</span> <span className="font-mono bg-slate-700 px-2 py-0.5 rounded">{block.data.changeType}</span></li>
+                <li className="flex justify-between"><span className="text-slate-400">操作员:</span> <span className="font-mono bg-slate-700 px-2 py-0.5 rounded">{block.operator}</span></li>
+                <li className="flex justify-between"><span className="text-slate-400">变更类型:</span> <span className="font-mono bg-slate-700 px-2 py-0.5 rounded">{block.change_type}</span></li>
               </ul>
             </div>
             <div>

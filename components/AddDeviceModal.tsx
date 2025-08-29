@@ -5,7 +5,7 @@ import { toast } from 'react-hot-toast';
 interface AddDeviceModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onAddDevice: (deviceData: { id: string; name: string; ipAddress: string; type: Device['type']; }) => void;
+  onAddDevice: (deviceData: { id: string; name: string; ip_address: string; type: Device['type']; }) => void;
 }
 
 const AddDeviceModal: React.FC<AddDeviceModalProps> = ({ isOpen, onClose, onAddDevice }) => {
@@ -31,7 +31,7 @@ const AddDeviceModal: React.FC<AddDeviceModalProps> = ({ isOpen, onClose, onAddD
       return;
     }
 
-    onAddDevice({ id, name, ipAddress, type });
+    onAddDevice({ id, name, ip_address: ipAddress, type });
     // The modal is now closed by the parent component (App.tsx) after a successful add.
     // We can reset the form fields here for the next time it opens.
     setId('');

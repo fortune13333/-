@@ -1,37 +1,30 @@
 from pydantic import BaseModel
 from typing import List, Optional
+import datetime
 
 # --- Block Schemas ---
-# 将BlockData的字段直接合并到Block模式中
 class BlockBase(BaseModel):
+    config: str
+    operator: str
+    change_type: str
+    diff: str
+    summary: str
+    analysis: str
+    security_risks: str
+
+class BlockCreate(BlockBase):
+    pass
+
+class Block(BlockBase):
     hash: str
     index: int
-    timestamp: str
+    timestamp: datetime.datetime
     prev_hash: str
     device_id: str
     version: int
-    operator: str
-    config: str
-    diff: str
-    change_type: str
-    summary: str
-    analysis: str
-    security_risks: str
 
-class Block(BlockBase):
     class Config:
         orm_mode = True
-
-# 用于从前端接收新配置创建请求的Schema
-class BlockCreate(BaseModel):
-    config: str
-    # AI分析结果由前端提供
-    diff: str
-    summary: str
-    analysis: str
-    security_risks: str
-    change_type: str
-    operator: str
 
 # --- Device Schemas ---
 class DeviceBase(BaseModel):
@@ -47,8 +40,7 @@ class Device(DeviceBase):
     class Config:
         orm_mode = True
 
-# 用于返回包含完整区块链的设备信息
-class DeviceWithBlockchain(Device):
+class DeviceWithBlocks(Device):
     blocks: List[Block] = []
 
 
@@ -62,11 +54,10 @@ class UserCreate(UserBase):
 
 class User(UserBase):
     id: int
-
     class Config:
         orm_mode = True
 
-# --- Token Schemas (for authentication) ---
+# --- Token Schemas ---
 class Token(BaseModel):
     access_token: str
     token_type: str

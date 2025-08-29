@@ -1,45 +1,39 @@
-from sqlalchemy import Column, Integer, String, Text, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime
 from sqlalchemy.orm import relationship
-
+import datetime
 from .database import Base
 
 class User(Base):
     __tablename__ = "users"
-
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
-    role = Column(String, nullable=False) # 'admin' or 'operator'
+    role = Column(String, nullable=False)
 
 class Device(Base):
     __tablename__ = "devices"
-
     id = Column(String, primary_key=True, index=True)
     name = Column(String, nullable=False)
     ip_address = Column(String, nullable=False)
-    type = Column(String, nullable=False) # 'Router', 'Switch', 'Firewall'
-
-    blocks = relationship("Block", back_populates="device", cascade="all, delete-orphan")
+    type = Column(String, nullable=False)
+    
+    # 建立与 Block 的关系，并按 index 降序排序
+    blocks = relationship("Block", back_populates="device", cascade="all, delete-orphan", order_by="desc(Block.index)")
 
 class Block(Base):
     __tablename__ = "blocks"
-
     hash = Column(String, primary_key=True, index=True)
     index = Column(Integer, nullable=False)
-    timestamp = Column(String, nullable=False)
+    timestamp = Column(DateTime, default=datetime.datetime.utcnow)
     prev_hash = Column(String, nullable=False)
-    
     device_id = Column(String, ForeignKey("devices.id"), nullable=False)
-
-    # ----- Flattened BlockData -----
     version = Column(Integer, nullable=False)
     operator = Column(String, nullable=False)
     config = Column(Text, nullable=False)
-    diff = Column(Text, nullable=False)
-    change_type = Column(String, nullable=False) # 'initial', 'update', 'rollback'
-    summary = Column(Text, nullable=False)
-    analysis = Column(Text, nullable=False)
-    security_risks = Column(Text, nullable=False)
-    # -----------------------------
-
+    diff = Column(Text)
+    change_type = Column(String)
+    summary = Column(Text)
+    analysis = Column(Text)
+    security_risks = Column(Text)
+    
     device = relationship("Device", back_populates="blocks")

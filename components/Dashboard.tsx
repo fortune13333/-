@@ -91,7 +91,7 @@ const Dashboard: React.FC<DashboardProps> = ({ devices, blockchains, onSelectDev
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {devices.map(device => {
-            const lastBlock = blockchains[device.id]?.[blockchains[device.id].length - 1];
+            const lastBlock = blockchains[device.id]?.[0]; // The chain is now sorted descending
             return (
               <div 
                 key={device.id}
@@ -113,25 +113,25 @@ const Dashboard: React.FC<DashboardProps> = ({ devices, blockchains, onSelectDev
                     </div>
                     <div>
                       <h3 className="text-lg font-bold text-white group-hover:text-cyan-400 transition-colors">{device.name}</h3>
-                      <p className="text-sm text-slate-400 font-mono">{device.ipAddress}</p>
+                      <p className="text-sm text-slate-400 font-mono">{device.ip_address}</p>
                     </div>
                   </div>
                 </div>
                 <div className="mt-4 text-sm text-slate-300 border-t border-slate-700 pt-3 space-y-2">
                   {lastBlock ? (
                     <>
-                      <p className="truncate text-slate-300" title={lastBlock.data.summary}>
-                        <span className="font-semibold text-slate-400">最新摘要: </span>{lastBlock.data.summary}
+                      <p className="truncate text-slate-300" title={lastBlock.summary}>
+                        <span className="font-semibold text-slate-400">最新摘要: </span>{lastBlock.summary}
                       </p>
                       <p className="text-xs">
-                        <span className="font-semibold text-slate-400">版本:</span> {lastBlock.data.version} | <span className="font-semibold text-slate-400">操作员:</span> <span className="font-mono">{lastBlock.data.operator}</span>
+                        <span className="font-semibold text-slate-400">版本:</span> {lastBlock.version} | <span className="font-semibold text-slate-400">操作员:</span> <span className="font-mono">{lastBlock.operator}</span>
                       </p>
                       <p className="text-xs text-slate-500">
                         {new Date(lastBlock.timestamp).toLocaleString()}
                       </p>
                     </>
                   ) : (
-                    <p>未找到配置历史。</p>
+                    <p>点击查看详情以加载配置历史。</p>
                   )}
                 </div>
               </div>

@@ -1,29 +1,24 @@
-
 export interface Device {
   id: string;
   name: string;
-  ipAddress: string;
+  ip_address: string;
   type: 'Router' | 'Switch' | 'Firewall';
 }
 
-export interface BlockData {
-  deviceId: string;
+export interface Block {
+  hash: string;
+  index: number;
+  timestamp: string;
+  prev_hash: string;
+  device_id: string;
   version: number;
   operator: string;
   config: string;
   diff: string;
-  changeType: 'initial' | 'update' | 'rollback';
+  change_type: string;
   summary: string;
   analysis: string;
   security_risks: string;
-}
-
-export interface Block {
-  index: number;
-  timestamp: string;
-  data: BlockData;
-  prev_hash: string;
-  hash: string;
 }
 
 export interface AIServiceSettings {
@@ -41,14 +36,8 @@ export interface AppSettings {
 }
 
 export interface User {
-  id: number;
+  id?: number; // Optional as it's not present on login payload
   username: string;
-  password?: string; // Password should be handled securely on a real backend
+  password?: string;
   role: 'admin' | 'operator';
-}
-
-// For real-time collaboration feature
-export interface SessionUser {
-    username: string;
-    sessionId: string;
 }

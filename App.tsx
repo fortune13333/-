@@ -1,8 +1,7 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
-import { GENESIS_BLOCKS, INITIAL_DEVICES, MOCK_USERS } from './constants';
-import { Device, Block, AppSettings, BlockData, User } from './types';
+import { Device, Block, AppSettings, User } from './types';
 import { geminiService } from './services/geminiService';
+import { apiService } from './services/apiService';
 import Header from './components/Header';
 import Dashboard from './components/Dashboard';
 import DeviceDetails from './components/DeviceDetails';
@@ -11,9 +10,6 @@ import AddDeviceModal from './components/AddDeviceModal';
 import Login from './components/Login';
 import ConfirmationModal from './components/ConfirmationModal';
 import { Toaster, toast } from 'react-hot-toast';
-import { calculateBlockHash } from './utils/crypto';
-import { leaveDeviceSession, clearAllMySessions } from './utils/session';
-
 
 const DEFAULT_SETTINGS: AppSettings = {
   ai: {
@@ -23,7 +19,6 @@ const DEFAULT_SETTINGS: AppSettings = {
   },
   agentApiUrl: '',
 };
-
 
 const App: React.FC = () => {
   const [devices, setDevices] = useState<Device[]>([]);
@@ -35,26 +30,13 @@ const App: React.FC = () => {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [rollbackTarget, setRollbackTarget] = useState<Block | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-  // Generate a unique ID for this browser tab session
-  const sessionId = useMemo(() => crypto.randomUUID(), []);
-
+  // --- Data Loading and Initialization ---
   useEffect(() => {
-    // Load all data on initial mount
+    // Load settings from localStorage (settings are client-specific)
     try {
-      const storedDevices = localStorage.getItem('chaintrace_devices');
-      const storedBlockchains = localStorage.getItem('chaintrace_blockchains');
       const storedSettings = localStorage.getItem('chaintrace_settings');
-      const storedUser = sessionStorage.getItem('chaintrace_user');
-
-      if (storedDevices && storedBlockchains) {
-        setDevices(JSON.parse(storedDevices));
-        setBlockchains(JSON.parse(storedBlockchains));
-      } else {
-        setDevices(INITIAL_DEVICES);
-        setBlockchains(GENESIS_BLOCKS);
-      }
-      
       if (storedSettings) {
         const parsed = JSON.parse(storedSettings);
         // Migration from old settings structure
@@ -69,7 +51,6 @@ const App: React.FC = () => {
           };
           setSettings(migratedSettings);
         } else {
-          // For settings already in new format, merge with default to ensure all keys are present
           const mergedSettings: AppSettings = {
             ...DEFAULT_SETTINGS,
             ...parsed,
@@ -86,137 +67,140 @@ const App: React.FC = () => {
       } else {
         setSettings(DEFAULT_SETTINGS);
       }
-
-      if (storedUser) {
-        setCurrentUser(JSON.parse(storedUser));
-      }
-
     } catch (error) {
-      console.error("Failed to load data from localStorage", error);
-      setDevices(INITIAL_DEVICES);
-      setBlockchains(GENESIS_BLOCKS);
+      console.error("Failed to load settings from localStorage", error);
       setSettings(DEFAULT_SETTINGS);
-    } finally {
-      setIsLoading(false);
     }
 
-    // Clean up session on tab close/refresh
-    const handleBeforeUnload = () => {
-        if (selectedDevice) {
-            leaveDeviceSession(selectedDevice.id, sessionId);
+    // Check for existing token to auto-login
+    const token = apiService.getToken();
+    if (token) {
+        // Here you would typically validate the token with the backend
+        // For this version, we'll assume the token is valid and fetch user data.
+        const user = apiService.getUserFromToken(token);
+        if (user) {
+            setCurrentUser(user);
+            setIsAuthenticated(true);
         }
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => {
-        window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
-
-  }, [selectedDevice, sessionId]);
-
-  useEffect(() => {
-    // Save data to localStorage whenever it changes
-    try {
-      if (!isLoading) {
-        localStorage.setItem('chaintrace_devices', JSON.stringify(devices));
-        localStorage.setItem('chaintrace_blockchains', JSON.stringify(blockchains));
-        localStorage.setItem('chaintrace_settings', JSON.stringify(settings));
-      }
-    } catch (error) {
-      console.error("Failed to save data to localStorage", error);
     }
-  }, [blockchains, devices, settings, isLoading]);
+    setIsLoading(false);
 
+  }, []);
+
+  // Fetch devices when authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      setIsLoading(true);
+      apiService.getDevices()
+        .then(data => {
+          setDevices(data);
+        })
+        .catch(error => {
+          toast.error(`获取设备列表失败: ${error.message}`);
+        })
+        .finally(() => {
+          setIsLoading(false);
+        });
+    }
+  }, [isAuthenticated]);
+
+
+  // Save settings to localStorage whenever they change
+  useEffect(() => {
+    try {
+      localStorage.setItem('chaintrace_settings', JSON.stringify(settings));
+    } catch (error) {
+      console.error("Failed to save settings to localStorage", error);
+    }
+  }, [settings]);
+
+  // --- Handlers ---
   const handleLogin = (user: User) => {
     setCurrentUser(user);
-    sessionStorage.setItem('chaintrace_user', JSON.stringify(user));
+    setIsAuthenticated(true);
     toast.success(`欢迎, ${user.username}!`);
   };
 
   const handleLogout = () => {
-    // Clean up any active sessions for this user before logging out
-    if(currentUser) {
-       clearAllMySessions(sessionId);
-    }
+    apiService.logout();
     setCurrentUser(null);
+    setIsAuthenticated(false);
     setSelectedDevice(null);
-    sessionStorage.removeItem('chaintrace_user');
+    setDevices([]);
+    setBlockchains({});
     toast.success('您已成功登出。');
   };
 
   const handleUpdateSettings = (newSettings: Partial<AppSettings>) => {
-    // Deep merge for nested AI settings
     setSettings(prev => ({
         ...prev,
         ...newSettings,
         ai: {
             ...prev.ai,
             ...(newSettings.ai || {}),
-        }
+            analysis: { ...DEFAULT_SETTINGS.ai.analysis, ...(newSettings.ai?.analysis || {}) },
+            commandGeneration: { ...DEFAULT_SETTINGS.ai.commandGeneration, ...(newSettings.ai?.commandGeneration || {}) },
+            configCheck: { ...DEFAULT_SETTINGS.ai.configCheck, ...(newSettings.ai?.configCheck || {}) },
+        },
     }));
   };
 
-  const handleSelectDevice = (device: Device) => {
+  const handleSelectDevice = async (device: Device) => {
+    setIsLoading(true);
     setSelectedDevice(device);
+    try {
+        if (!blockchains[device.id]) {
+            const deviceWithChain = await apiService.getDeviceWithBlockchain(device.id);
+            setBlockchains(prev => ({
+                ...prev,
+                [device.id]: deviceWithChain.blocks
+            }));
+        }
+    } catch (error) {
+        toast.error(`获取设备 ${device.name} 的历史记录失败。`);
+        setSelectedDevice(null); // Deselect if fetching fails
+    } finally {
+        setIsLoading(false);
+    }
   };
 
   const handleBackToDashboard = () => {
     setSelectedDevice(null);
   };
 
-  const handleResetData = () => {
-    const isConfirmed = window.confirm("您确定要重置所有数据到初始状态吗？所有已添加的配置历史将被清除。");
+  const handleResetData = async () => {
+    const isConfirmed = window.confirm("您确定要重置所有数据到初始状态吗？此操作将清空后端数据库并重新填充初始数据。");
     if (isConfirmed) {
       setIsLoading(true);
-      localStorage.removeItem('chaintrace_devices');
-      localStorage.removeItem('chaintrace_blockchains');
-      localStorage.removeItem('chaintrace_active_sessions'); // Clear session data
-      setDevices(INITIAL_DEVICES);
-      setBlockchains(GENESIS_BLOCKS);
-      setSelectedDevice(null);
-      toast.success('数据已重置为初始状态!');
-      setIsLoading(false);
+      try {
+        await apiService.resetData();
+        const data = await apiService.getDevices();
+        setDevices(data);
+        setBlockchains({}); // Clear local cache
+        setSelectedDevice(null);
+        toast.success('数据已重置为初始状态!');
+      } catch (error) {
+        toast.error(`重置数据失败: ${error.message}`);
+      } finally {
+        setIsLoading(false);
+      }
     }
   };
     
-  const handleAddNewDevice = async (newDeviceData: Omit<Device, 'ipAddress'> & { ipAddress: string; }) => {
+  const handleAddNewDevice = async (newDeviceData: Omit<Device, 'ip_address'> & { ip_address: string; }) => {
     if (devices.find(d => d.id.toLowerCase() === newDeviceData.id.toLowerCase())) {
         toast.error(`设备 ID "${newDeviceData.id}" 已存在。`);
         return;
     }
-
-    const newDevice: Device = { ...newDeviceData };
-
-    const genesisConfig = `hostname ${newDevice.name}\n!\nend`;
-    const genesisBlockData: BlockData = {
-        deviceId: newDevice.id,
-        version: 1,
-        operator: 'system_init',
-        config: genesisConfig,
-        diff: `+ ${genesisConfig.split('\n').join('\n+ ')}`,
-        changeType: 'initial',
-        summary: '初始系统配置。',
-        analysis: '这是设备的第一个配置区块，用于建立基线。',
-        security_risks: '无。这是一个标准的初始设置。',
-    };
-    
-    const blockWithoutHash: Omit<Block, 'hash'> = {
-        index: 0,
-        timestamp: new Date().toISOString(),
-        data: genesisBlockData,
-        prev_hash: '0',
-    };
-
-    const newHash = await calculateBlockHash(blockWithoutHash);
-    const genesisBlock: Block = {
-        ...blockWithoutHash,
-        hash: newHash,
-    };
-
-    setDevices(prev => [...prev, newDevice]);
-    setBlockchains(prev => ({ ...prev, [newDevice.id]: [genesisBlock] }));
-    setSelectedDevice(newDevice);
-    setIsAddDeviceModalOpen(false); // Close modal on success
-    toast.success(`设备 "${newDevice.name}" 已成功添加！`);
+    try {
+      const newDevice = await apiService.addDevice(newDeviceData);
+      setDevices(prev => [...prev, newDevice]);
+      setSelectedDevice(newDevice); // Navigate to new device
+      setIsAddDeviceModalOpen(false);
+      toast.success(`设备 "${newDevice.name}" 已成功添加！`);
+    } catch (error) {
+       toast.error(`添加设备失败: ${error.message}`);
+    }
   };
 
   const handleAddConfiguration = async (deviceId: string, newConfig: string) => {
@@ -234,18 +218,25 @@ const App: React.FC = () => {
     
     try {
       const currentChain = blockchains[deviceId] || [];
-      const { newBlock, aiSuccess } = await geminiService.addNewConfiguration(
-        deviceId, 
-        newConfig, 
-        currentUser.username, 
-        currentChain,
-        settings,
-        'update' // changeType
+      const lastBlock = currentChain.length > 0 ? currentChain[0] : null; // Chain is sorted descending
+      
+      const { analysisResult, aiSuccess } = await geminiService.getAIAnalysisForNewConfig(
+          lastBlock,
+          newConfig,
+          settings,
+          'update'
       );
       
+      const newBlock = await apiService.addBlock(deviceId, {
+          config: newConfig,
+          operator: currentUser.username,
+          change_type: 'update',
+          ...analysisResult
+      });
+
       setBlockchains(prev => ({
         ...prev,
-        [deviceId]: [...currentChain, newBlock]
+        [deviceId]: [newBlock, ...currentChain]
       }));
       
       if (settings.ai.analysis.enabled) {
@@ -277,9 +268,9 @@ const App: React.FC = () => {
       return;
     }
     
-    const deviceId = targetBlock.data.deviceId;
+    const deviceId = targetBlock.device_id;
     const currentChain = blockchains[deviceId] || [];
-    const lastBlock = currentChain[currentChain.length - 1];
+    const lastBlock = currentChain[0]; // Descending sort
     if (lastBlock.hash === targetBlock.hash) {
       toast.error('无法回滚到当前最新版本。');
       return;
@@ -291,37 +282,40 @@ const App: React.FC = () => {
   const executeRollback = async () => {
     if (!rollbackTarget || !currentUser) return;
     
-    // Capture the block to work with, to avoid issues with state being updated.
     const targetBlock = rollbackTarget;
-
-    const deviceId = targetBlock.data.deviceId;
+    const deviceId = targetBlock.device_id;
     const currentChain = blockchains[deviceId] || [];
-    const lastBlock = currentChain[currentChain.length - 1];
+    const lastBlock = currentChain[0];
 
     setIsLoading(true);
-    const toastId = toast.loading(`正在回滚至版本 ${targetBlock.data.version} 并请求 AI 分析...`);
-    setRollbackTarget(null); // Close modal immediately
+    const toastId = toast.loading(`正在回滚至版本 ${targetBlock.version} 并请求 AI 分析...`);
+    setRollbackTarget(null);
 
     try {
-      const rollbackConfig = targetBlock.data.config;
-      const changeDescription = `配置从版本 ${lastBlock.data.version} 回滚至版本 ${targetBlock.data.version}。`;
+      const rollbackConfig = targetBlock.config;
+      const changeDescription = `配置从版本 ${lastBlock.version} 回滚至版本 ${targetBlock.version}。`;
 
-      const { newBlock } = await geminiService.addNewConfiguration(
-        deviceId,
+      const { analysisResult } = await geminiService.getAIAnalysisForNewConfig(
+        lastBlock,
         rollbackConfig,
-        currentUser.username,
-        currentChain,
         settings,
         'rollback',
         changeDescription
       );
 
+      const newBlock = await apiService.addBlock(deviceId, {
+          config: rollbackConfig,
+          operator: currentUser.username,
+          change_type: 'rollback',
+          ...analysisResult
+      });
+
       setBlockchains(prev => ({
         ...prev,
-        [deviceId]: [...currentChain, newBlock]
+        [deviceId]: [newBlock, ...currentChain]
       }));
       
-      toast.success(`已成功回滚至版本 ${targetBlock.data.version}！`, { id: toastId });
+      toast.success(`已成功回滚至版本 ${targetBlock.version}！`, { id: toastId });
 
     } catch (error) {
       console.error("Error rolling back configuration:", error);
@@ -332,36 +326,37 @@ const App: React.FC = () => {
     }
   };
 
-
-  const handleDeleteDevice = (deviceId: string) => {
+  const handleDeleteDevice = async (deviceId: string) => {
     const deviceToDelete = devices.find(d => d.id === deviceId);
     if (!deviceToDelete) return;
 
-    // Update devices state
-    setDevices(prev => prev.filter(device => device.id !== deviceId));
+    try {
+        await apiService.deleteDevice(deviceId);
+        setDevices(prev => prev.filter(device => device.id !== deviceId));
 
-    // Update blockchains state
-    setBlockchains(prev => {
-      const newBlockchains = { ...prev };
-      delete newBlockchains[deviceId];
-      return newBlockchains;
-    });
+        setBlockchains(prev => {
+          const newBlockchains = { ...prev };
+          delete newBlockchains[deviceId];
+          return newBlockchains;
+        });
 
-    // If the deleted device was the one being viewed, go back to the dashboard
-    if (selectedDevice?.id === deviceId) {
-      setSelectedDevice(null);
+        if (selectedDevice?.id === deviceId) {
+          setSelectedDevice(null);
+        }
+
+        toast.success(`设备 "${deviceToDelete.name}" 已成功删除。`);
+    } catch (error) {
+        toast.error(`删除设备失败: ${error.message}`);
     }
-
-    toast.success(`设备 "${deviceToDelete.name}" 已成功删除。`);
   };
   
-  if (!currentUser) {
+  if (!isAuthenticated || !currentUser) {
     return (
         <div className="min-h-screen bg-slate-900 font-sans flex items-center justify-center">
             <Toaster position="top-center" toastOptions={{
                 className: '!bg-slate-700 !text-white',
             }} />
-            <Login onLogin={handleLogin} mockUsers={MOCK_USERS} />
+            <Login onLogin={handleLogin} />
         </div>
     );
   }
@@ -384,7 +379,6 @@ const App: React.FC = () => {
             chain={blockchains[selectedDevice.id] || []}
             settings={settings}
             currentUser={currentUser}
-            sessionId={sessionId}
             onBack={handleBackToDashboard}
             onAddConfiguration={handleAddConfiguration}
             onPromptRollback={handlePromptRollback}
@@ -425,7 +419,7 @@ const App: React.FC = () => {
           confirmButtonVariant="warning"
         >
           <p className="text-sm text-slate-300">
-            您确定要将设备 <strong className="font-bold text-white">{rollbackTarget.data.deviceId}</strong> 的配置回滚到 <strong className="font-bold text-white">版本 {rollbackTarget.data.version}</strong> 吗？
+            您确定要将设备 <strong className="font-bold text-white">{rollbackTarget.device_id}</strong> 的配置回滚到 <strong className="font-bold text-white">版本 {rollbackTarget.version}</strong> 吗？
           </p>
           <p className="mt-2 text-xs text-slate-400">
             此操作将在区块链上创建一个新的配置记录，而不是删除历史记录。
