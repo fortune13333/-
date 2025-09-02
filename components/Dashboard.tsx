@@ -1,5 +1,5 @@
 import React from 'react';
-import { Device, Block, User } from '../types';
+import { Device, Block } from '../types';
 import { TrashIcon, PlusIcon } from './AIIcons';
 
 interface DashboardProps {
@@ -10,7 +10,6 @@ interface DashboardProps {
   onResetData: () => void;
   onDeleteDevice: (deviceId: string) => void;
   onOpenAddDeviceModal: () => void;
-  currentUser: User; // Add currentUser
 }
 
 const DeviceIcon: React.FC<{ type: Device['type'] }> = ({ type }) => {
@@ -43,21 +42,15 @@ const SkeletonCard: React.FC = () => (
   </div>
 );
 
-const Dashboard: React.FC<DashboardProps> = ({ devices, blockchains, onSelectDevice, isLoading, onResetData, onDeleteDevice, onOpenAddDeviceModal, currentUser }) => {
+const Dashboard: React.FC<DashboardProps> = ({ devices, blockchains, onSelectDevice, isLoading, onResetData, onDeleteDevice, onOpenAddDeviceModal }) => {
   
   const handleDelete = (e: React.MouseEvent, deviceId: string, deviceName: string) => {
     e.stopPropagation(); // Prevent card click event from firing
-    if (currentUser.role !== 'admin') {
-      alert('只有管理员才能删除设备。'); // Using alert for simplicity
-      return;
-    }
     const isConfirmed = window.confirm(`您确定要删除设备 "${deviceName}" 及其所有配置历史吗？此操作不可撤销。`);
     if (isConfirmed) {
       onDeleteDevice(deviceId);
     }
   };
-
-  const isAdmin = currentUser.role === 'admin';
 
   return (
     <div>
@@ -66,18 +59,14 @@ const Dashboard: React.FC<DashboardProps> = ({ devices, blockchains, onSelectDev
         <div className="flex items-center gap-2">
             <button
               onClick={onOpenAddDeviceModal}
-              disabled={!isAdmin}
-              title={!isAdmin ? "只有管理员才能添加设备" : "添加新设备"}
-              className="flex items-center gap-2 text-sm bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-3 rounded-md transition-colors duration-200 disabled:bg-slate-600 disabled:cursor-not-allowed"
+              className="flex items-center gap-2 text-sm bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-3 rounded-md transition-colors duration-200"
             >
               <PlusIcon />
               <span>添加新设备</span>
             </button>
             <button
               onClick={onResetData}
-              disabled={!isAdmin}
-              title={!isAdmin ? "只有管理员才能重置数据" : "重置所有数据"}
-              className="text-sm bg-slate-700 hover:bg-red-600/50 text-slate-300 hover:text-red-300 font-medium py-2 px-3 rounded-md transition-colors duration-200 disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed disabled:hover:bg-slate-800 disabled:hover:text-slate-500"
+              className="text-sm bg-slate-700 hover:bg-red-600/50 text-slate-300 hover:text-red-300 font-medium py-2 px-3 rounded-md transition-colors duration-200"
             >
               重置数据
             </button>
@@ -93,9 +82,7 @@ const Dashboard: React.FC<DashboardProps> = ({ devices, blockchains, onSelectDev
               <p className="text-slate-400 mt-2 mb-6">开始您的链踪之旅，请先添加您的第一个网络设备。</p>
               <button
                 onClick={onOpenAddDeviceModal}
-                disabled={!isAdmin}
-                title={!isAdmin ? "只有管理员才能添加设备" : "添加第一个设备"}
-                className="flex items-center gap-2 text-sm bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-4 rounded-md transition-colors duration-200 mx-auto disabled:bg-slate-600 disabled:cursor-not-allowed"
+                className="flex items-center gap-2 text-sm bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-4 rounded-md transition-colors duration-200 mx-auto"
               >
                 <PlusIcon />
                 <span>添加第一个设备</span>
@@ -104,23 +91,21 @@ const Dashboard: React.FC<DashboardProps> = ({ devices, blockchains, onSelectDev
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {devices.map(device => {
-            const lastBlock = blockchains[device.id]?.[0]; // The chain is now sorted descending
+            const lastBlock = blockchains[device.id]?.[blockchains[device.id].length - 1];
             return (
               <div 
                 key={device.id}
                 onClick={() => onSelectDevice(device)}
                 className="relative bg-slate-800 p-4 rounded-lg shadow-md cursor-pointer hover:bg-slate-700 transition-colors duration-200 group flex flex-col justify-between"
               >
-                {isAdmin && (
-                  <button
-                    onClick={(e) => handleDelete(e, device.id, device.name)}
-                    className="absolute top-2 right-2 p-1.5 rounded-full bg-slate-700/50 text-slate-400 opacity-0 group-hover:opacity-100 hover:bg-red-500/50 hover:text-red-300 transition-all duration-200 z-10"
-                    aria-label={`删除设备 ${device.name}`}
-                    title={`删除设备 ${device.name}`}
-                  >
-                      <TrashIcon />
-                  </button>
-                )}
+                <button
+                  onClick={(e) => handleDelete(e, device.id, device.name)}
+                  className="absolute top-2 right-2 p-1.5 rounded-full bg-slate-700/50 text-slate-400 opacity-0 group-hover:opacity-100 hover:bg-red-500/50 hover:text-red-300 transition-all duration-200 z-10"
+                  aria-label={`删除设备 ${device.name}`}
+                  title={`删除设备 ${device.name}`}
+                >
+                    <TrashIcon />
+                </button>
                 <div>
                   <div className="flex items-center gap-4">
                     <div className="bg-slate-900 p-2 rounded-md">
@@ -128,25 +113,25 @@ const Dashboard: React.FC<DashboardProps> = ({ devices, blockchains, onSelectDev
                     </div>
                     <div>
                       <h3 className="text-lg font-bold text-white group-hover:text-cyan-400 transition-colors">{device.name}</h3>
-                      <p className="text-sm text-slate-400 font-mono">{device.ip_address}</p>
+                      <p className="text-sm text-slate-400 font-mono">{device.ipAddress}</p>
                     </div>
                   </div>
                 </div>
                 <div className="mt-4 text-sm text-slate-300 border-t border-slate-700 pt-3 space-y-2">
                   {lastBlock ? (
                     <>
-                      <p className="truncate text-slate-300" title={lastBlock.summary}>
-                        <span className="font-semibold text-slate-400">最新摘要: </span>{lastBlock.summary}
+                      <p className="truncate text-slate-300" title={lastBlock.data.summary}>
+                        <span className="font-semibold text-slate-400">最新摘要: </span>{lastBlock.data.summary}
                       </p>
                       <p className="text-xs">
-                        <span className="font-semibold text-slate-400">版本:</span> {lastBlock.version} | <span className="font-semibold text-slate-400">操作员:</span> <span className="font-mono">{lastBlock.operator}</span>
+                        <span className="font-semibold text-slate-400">版本:</span> {lastBlock.data.version} | <span className="font-semibold text-slate-400">操作员:</span> <span className="font-mono">{lastBlock.data.operator}</span>
                       </p>
                       <p className="text-xs text-slate-500">
                         {new Date(lastBlock.timestamp).toLocaleString()}
                       </p>
                     </>
                   ) : (
-                    <p>点击查看详情以加载配置历史。</p>
+                    <p>未找到配置历史。</p>
                   )}
                 </div>
               </div>

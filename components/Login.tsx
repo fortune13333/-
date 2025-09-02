@@ -1,10 +1,11 @@
+
 import React, { useState } from 'react';
 import { User } from '../types';
 import { toast } from 'react-hot-toast';
-import { apiService } from '../services/apiService';
 
 interface LoginProps {
   onLogin: (user: User) => void;
+  mockUsers: User[];
 }
 
 const ChainIcon: React.FC = () => (
@@ -13,22 +14,22 @@ const ChainIcon: React.FC = () => (
   </svg>
 );
 
-const Login: React.FC<LoginProps> = ({ onLogin }) => {
+const Login: React.FC<LoginProps> = ({ onLogin, mockUsers }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
-    try {
-      const user = await apiService.login(username, password);
-      onLogin(user);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : '登录失败';
-      toast.error(errorMessage);
-    } finally {
-        setIsLoading(false);
+    const user = mockUsers.find(
+      u => u.username === username && u.password === password
+    );
+
+    if (user) {
+      // In a real app, you would not send the password back
+      const { password, ...userToLogin } = user;
+      onLogin(userToLogin);
+    } else {
+      toast.error('用户名或密码无效。');
     }
   };
 
@@ -60,7 +61,6 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             className="w-full bg-slate-900 border border-slate-700 rounded-md p-3 text-slate-200 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
             required
             autoComplete="username"
-            disabled={isLoading}
           />
         </div>
         <div>
@@ -78,16 +78,14 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             className="w-full bg-slate-900 border border-slate-700 rounded-md p-3 text-slate-200 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
             required
             autoComplete="current-password"
-            disabled={isLoading}
           />
         </div>
         <div>
           <button
             type="submit"
-            className="w-full bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-3 px-4 rounded-md transition-colors disabled:bg-slate-600 disabled:cursor-not-allowed"
-            disabled={isLoading}
+            className="w-full bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-3 px-4 rounded-md transition-colors"
           >
-            {isLoading ? '登录中...' : '登录'}
+            登录
           </button>
         </div>
       </form>

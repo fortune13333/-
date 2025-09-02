@@ -1,13 +1,15 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Device, Block, AppSettings, User } from '../types';
+
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Device, Block, AppSettings, User, SessionUser } from '../types';
 import HistoryItem from './HistoryItem';
 import BlockDetailsModal from './BlockDetailsModal';
+import VerificationModal, { VerificationResult } from './VerificationModal';
 import Loader from './Loader';
+import { verifyChain } from '../utils/crypto';
 import { toast } from 'react-hot-toast';
 import { DownloadIcon, PlusIcon, SparklesIcon, BrainIcon } from './AIIcons';
 import { geminiService } from '../services/geminiService';
-import CollaborationStatus from './CollaborationStatus';
-import { WS_BASE_URL } from '../constants';
+import { joinDeviceSession, leaveDeviceSession, getActiveSessions } from '../utils/session';
 
 interface DeviceDetailsProps {
   device: Device;
@@ -15,23 +17,49 @@ interface DeviceDetailsProps {
   chain: Block[];
   settings: AppSettings;
   currentUser: User;
+  sessionId: string;
   onBack: () => void;
   onAddConfiguration: (deviceId: string, newConfig: string) => void;
   onPromptRollback: (targetBlock: Block) => void;
   onSelectDevice: (device: Device) => void;
   onOpenAddDeviceModal: () => void;
-  onRealtimeBlockAdd: (deviceId: string, newBlock: Block) => void;
-  isSubmitting: boolean;
+  isLoading: boolean;
 }
 
+const ShieldCheckIcon: React.FC = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+  </svg>
+);
+
+const CollaborationWarning: React.FC<{ users: SessionUser[] }> = ({ users }) => {
+    if (users.length === 0) return null;
+
+    const userNames = users.map(u => u.username).join(', ');
+
+    return (
+        <div className="bg-yellow-900/50 border border-yellow-700/50 text-yellow-300 p-3 rounded-md mb-4 text-sm flex items-center gap-3">
+             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+            </svg>
+            <span>
+                注意: 用户 <strong className="font-bold text-yellow-200">{userNames}</strong> 也正在查看此设备。
+            </span>
+        </div>
+    );
+};
+
 const DeviceDetails: React.FC<DeviceDetailsProps> = ({ 
-    device, allDevices, chain, settings, currentUser,
-    onBack, onAddConfiguration, onPromptRollback, onSelectDevice, onOpenAddDeviceModal, onRealtimeBlockAdd, isSubmitting
+    device, allDevices, chain, settings, currentUser, sessionId,
+    onBack, onAddConfiguration, onPromptRollback, onSelectDevice, onOpenAddDeviceModal, isLoading 
 }) => {
-  const lastBlock = chain[0]; // Chain is sorted descending
-  const [newConfig, setNewConfig] = useState(lastBlock?.config || '');
+  const lastBlock = chain[chain.length - 1];
+  const [newConfig, setNewConfig] = useState(lastBlock?.data?.config || '');
   const [selectedBlockInfo, setSelectedBlockInfo] = useState<{ block: Block; prevConfig: string } | null>(null);
   
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [isVerificationModalOpen, setIsVerificationModalOpen] = useState(false);
+  const [verificationResults, setVerificationResults] = useState<VerificationResult[]>([]);
   const [isFetchingConfig, setIsFetchingConfig] = useState(false);
   
   const [aiPrompt, setAiPrompt] = useState('');
@@ -40,13 +68,47 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
   const [isCheckingConfig, setIsCheckingConfig] = useState(false);
   const [configCheckResult, setConfigCheckResult] = useState<string | null>(null);
 
-  const [concurrentUsers, setConcurrentUsers] = useState<string[]>([]);
-  const socketRef = useRef<WebSocket | null>(null);
+  const [otherViewingUsers, setOtherViewingUsers] = useState<SessionUser[]>([]);
+
+  // BUG FIX: The original multi-useEffect implementation with useRef was buggy.
+  // This single, robust useEffect correctly handles joining, leaving, and listening for session changes.
+  useEffect(() => {
+    // Announce that this user/session is viewing the current device
+    joinDeviceSession(device.id, currentUser, sessionId);
+
+    // Function to update the list of *other* viewers for the UI
+    const updateViewerList = () => {
+        const allSessions = getActiveSessions();
+        const viewersForThisDevice = allSessions[device.id] || [];
+        setOtherViewingUsers(viewersForThisDevice.filter(u => u.sessionId !== sessionId));
+    };
+    
+    // Update immediately for this tab
+    updateViewerList();
+
+    // Set up a listener for changes from other tabs
+    const handleStorageChange = (event: StorageEvent) => {
+        if (event.key === 'chaintrace_active_sessions') {
+            updateViewerList();
+        }
+    };
+    window.addEventListener('storage', handleStorageChange);
+
+    // The cleanup function is critical. It runs when the component unmounts or a dependency changes.
+    // By using the `device.id` from this effect's closure, we ensure we always leave the session
+    // for the device that this effect instance was created for. This correctly handles navigation
+    // between different device pages.
+    return () => {
+      leaveDeviceSession(device.id, sessionId);
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, [device.id, currentUser, sessionId]);
+  
 
   useEffect(() => {
     // When the device changes, update the config textarea with the latest config of the new device
-    const newLastBlock = chain[0]; // Chain is sorted descending
-    setNewConfig(newLastBlock?.config || '');
+    const newLastBlock = chain[chain.length - 1];
+    setNewConfig(newLastBlock?.data?.config || '');
     setConfigCheckResult(null); // Reset check result on device change
   }, [device, chain]);
   
@@ -55,98 +117,9 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
     setConfigCheckResult(null);
   }, [newConfig]);
 
-  // --- WebSocket Connection Manager ---
-  useEffect(() => {
-    // Clean up previous connection if it exists when dependencies change
-    if (socketRef.current) {
-        socketRef.current.close();
-    }
-    
-    // Don't connect if we don't have the necessary info
-    if (!device.id || !currentUser.username) {
-        return;
-    }
-
-    // Connect to WebSocket endpoint using the centralized base URL.
-    const socket = new WebSocket(`${WS_BASE_URL}/ws/${device.id}/${currentUser.username}`);
-    socketRef.current = socket;
-
-    socket.onopen = () => {
-        console.log(`WebSocket connected for device ${device.id}`);
-    };
-
-    socket.onmessage = (event) => {
-        try {
-            const message = JSON.parse(event.data);
-            
-            if (message.type === 'USER_LIST_UPDATE' && Array.isArray(message.payload)) {
-                setConcurrentUsers(message.payload);
-            } else if (message.type === 'NEW_BLOCK' && message.payload) {
-                // The current user who submitted the block doesn't need a UI update,
-                // because their UI updates via the standard HTTP response flow.
-                // This prevents duplicate state updates and confusing notifications.
-                if (message.payload.operator !== currentUser.username) {
-                    onRealtimeBlockAdd(device.id, message.payload);
-                }
-            } else {
-                console.warn('Received unknown WebSocket message format:', message);
-            }
-        } catch (error) {
-            console.error('Failed to parse WebSocket message:', error);
-        }
-    };
-
-    socket.onerror = (event) => {
-      // The onerror event is not very informative and logging the event object is unhelpful.
-      // The subsequent onclose event will provide a detailed error message.
-      console.warn('A WebSocket error occurred. See the error log from the "onclose" event for details.');
-    };
-
-    socket.onclose = (event) => {
-      let reasonMessage = event.reason || 'No reason given.';
-      let reasonDescription = '';
-      switch (event.code) {
-        case 1000: reasonDescription = "Normal closure, connection successfully closed."; break;
-        case 1001: reasonDescription = "Endpoint going away, such as a server shutting down or a browser tab being closed."; break;
-        case 1002: reasonDescription = "Protocol error."; break;
-        case 1003: reasonDescription = "Unsupported data type received."; break;
-        case 1005: reasonDescription = "No status code was present."; break;
-        case 1006: reasonDescription = "Abnormal closure. This is a generic error returned when the connection was lost unexpectedly. Check if the server is running, the URL is correct, and if any proxy/firewall supports WebSockets."; break;
-        case 1007: reasonDescription = "Invalid frame payload data."; break;
-        case 1008: reasonDescription = "Policy violation."; break;
-        case 1009: reasonDescription = "Message too big to process."; break;
-        case 1010: reasonDescription = "Missing extension for the server to continue."; break;
-        case 1011: reasonDescription = "Internal server error on the WebSocket server."; break;
-        case 1015: reasonDescription = "TLS handshake failed (e.g., the server certificate can't be verified)."; break;
-        default: reasonDescription = "Unknown close code.";
-      }
-      
-      const logMessage = `WebSocket disconnected for device ${device.id}. ` +
-          `Code: ${event.code}, Cleanly closed: ${event.wasClean}, Reason: "${reasonMessage}".\n` +
-          `Description: ${reasonDescription}`;
-
-      if (event.wasClean) {
-          console.log(logMessage);
-      } else {
-          console.error(logMessage); // Log as an error for abnormal closures
-      }
-
-      setConcurrentUsers([]); // Clear users when disconnected
-    };
-
-    // Cleanup function: this is called when the component unmounts or dependencies change
-    return () => {
-        if (socketRef.current) {
-            console.log(`Cleaning up WebSocket for device ${device.id}`);
-            socketRef.current.close(1000, "Component unmounting"); // Normal closure
-            socketRef.current = null;
-        }
-    };
-  }, [device.id, currentUser.username, onRealtimeBlockAdd]); // Re-run effect if device or user changes
-
   const handleSelectBlock = (block: Block) => {
     const prevBlock = chain.find(b => b.index === block.index - 1);
-    const prevConfig = prevBlock ? prevBlock.config : '';
+    const prevConfig = prevBlock ? prevBlock.data.config : '';
     setSelectedBlockInfo({ block, prevConfig });
   };
 
@@ -208,6 +181,30 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
     onAddConfiguration(device.id, newConfig);
   };
   
+  const handleVerifyChain = async () => {
+    setIsVerifying(true);
+    setIsVerificationModalOpen(true);
+    setVerificationResults(
+      chain.map(block => ({ index: block.index, status: 'pending' }))
+    );
+
+    // Give the modal a moment to render before starting the intensive verification task
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    await verifyChain(chain, (index, status, details) => {
+      setVerificationResults(prev => {
+        const newResults = [...prev];
+        const resultIndex = newResults.findIndex(r => r.index === index);
+        if (resultIndex > -1) {
+            newResults[resultIndex] = { ...newResults[resultIndex], status, details };
+        }
+        return newResults;
+      });
+    });
+
+    setIsVerifying(false);
+  };
+  
   const handleGenerateConfig = async () => {
       if (!aiPrompt.trim()) {
           toast.error('请输入您的配置意图。');
@@ -253,6 +250,9 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
     }
   };
 
+
+  const sortedChain = [...chain].sort((a, b) => b.index - a.index);
+
   return (
     <div>
        <button onClick={onBack} className="flex items-center gap-2 mb-6 text-cyan-400 hover:text-cyan-300 transition-colors">
@@ -267,8 +267,15 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
         <div className="bg-slate-800 p-6 rounded-lg shadow-xl">
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-2xl font-bold text-white">配置历史</h3>
+            <button 
+              onClick={handleVerifyChain}
+              disabled={isVerifying || isLoading}
+              className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-900 disabled:text-slate-500 disabled:cursor-not-allowed text-white font-bold py-2 px-3 rounded-md transition-colors text-sm"
+            >
+              {isVerifying ? <Loader/> : <ShieldCheckIcon/>}
+              <span>验证完整性</span>
+            </button>
           </div>
-          <CollaborationStatus currentUser={currentUser} concurrentUsers={concurrentUsers} />
           <div className="mb-6">
             <label htmlFor="device-switcher" className="block text-sm font-medium text-slate-400 mb-1">
                 当前设备
@@ -303,7 +310,7 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
             </div>
           </div>
           <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2">
-            {chain.map((block, index) => (
+            {sortedChain.map((block, index) => (
               <HistoryItem 
                 key={block.hash} 
                 block={block} 
@@ -313,7 +320,7 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
                 onRollback={() => onPromptRollback(block)}
               />
             ))}
-            {chain.length === 0 && (
+            {sortedChain.length === 0 && (
                 <div className="text-center py-8 text-slate-500">
                     <p>未找到该设备的历史配置。</p>
                     <p>请在右侧提交第一个配置。</p>
@@ -324,6 +331,7 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
 
         {/* Right Side: Add New Config */}
         <div className="bg-slate-800 p-6 rounded-lg shadow-xl flex flex-col">
+          <CollaborationWarning users={otherViewingUsers} />
           <div>
             <h3 className="text-2xl font-bold text-white mb-4">提交新配置</h3>
             <p className="text-slate-400 mb-6">应用新配置将在链上创建一个新的、不可变的区块，操作员为 <span className="font-mono text-cyan-400">{currentUser.username}</span>。</p>
@@ -337,7 +345,7 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
                         <button
                             type="button"
                             onClick={handleConfigCheck}
-                            disabled={isCheckingConfig || isSubmitting}
+                            disabled={isCheckingConfig || isLoading}
                             className="flex items-center gap-2 text-xs bg-slate-700 hover:bg-slate-600 disabled:bg-slate-900 disabled:text-slate-500 disabled:cursor-not-allowed text-white font-bold py-1 px-3 rounded-md transition-colors"
                         >
                             {isCheckingConfig ? <Loader /> : <BrainIcon />}
@@ -348,7 +356,7 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
                         <button
                             type="button"
                             onClick={handleFetchFromDevice}
-                            disabled={isFetchingConfig || isSubmitting}
+                            disabled={isFetchingConfig || isLoading}
                             className="flex items-center gap-2 text-xs bg-slate-700 hover:bg-slate-600 disabled:bg-slate-900 disabled:text-slate-500 disabled:cursor-not-allowed text-white font-bold py-1 px-3 rounded-md transition-colors"
                         >
                             {isFetchingConfig ? <Loader /> : <DownloadIcon />}
@@ -363,7 +371,6 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
                 onChange={(e) => setNewConfig(e.target.value)}
                 className="w-full flex-grow bg-slate-900 border border-slate-700 rounded-md p-2 font-mono text-sm text-slate-200 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                 placeholder="在此处输入完整的设备配置..."
-                disabled={isSubmitting}
               />
             </div>
 
@@ -395,12 +402,12 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
                             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleGenerateConfig(); }}}
                             className="flex-grow bg-slate-700 border border-slate-600 rounded-md p-2 text-slate-200 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 text-sm"
                             placeholder="例如：为 VLAN 10 添加端口 G0/1"
-                            disabled={isGenerating || isSubmitting}
+                            disabled={isGenerating}
                         />
                         <button
                             type="button"
                             onClick={handleGenerateConfig}
-                            disabled={isGenerating || isSubmitting}
+                            disabled={isGenerating || isLoading}
                             className="flex-shrink-0 flex items-center justify-center gap-2 w-32 bg-slate-700 hover:bg-cyan-600/50 text-white font-bold py-2 px-3 rounded-md transition-colors text-sm disabled:opacity-50 disabled:cursor-wait"
                         >
                            {isGenerating ? <Loader/> : '生成命令'}
@@ -411,10 +418,10 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
 
             <button
               type="submit"
-              disabled={isSubmitting || isFetchingConfig || isGenerating || isCheckingConfig}
+              disabled={isLoading || isVerifying || isFetchingConfig || isGenerating || isCheckingConfig}
               className="w-full flex justify-center items-center gap-2 bg-cyan-600 hover:bg-cyan-700 disabled:bg-slate-600 text-white font-bold py-2 px-4 rounded-md transition-colors mt-auto"
             >
-              {isSubmitting ? <Loader /> : (settings.agentApiUrl ? '推送到设备并记录' : '提交到区块链')}
+              {isLoading ? <Loader /> : (settings.agentApiUrl ? '推送到设备并记录' : '提交到区块链')}
             </button>
           </form>
         </div>
@@ -428,6 +435,14 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
         />
       )}
       
+      {isVerificationModalOpen && (
+        <VerificationModal 
+            results={verificationResults}
+            chain={chain}
+            onClose={() => setIsVerificationModalOpen(false)}
+            isVerifying={isVerifying}
+        />
+      )}
     </div>
   );
 };

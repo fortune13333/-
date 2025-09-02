@@ -1,6 +1,7 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { Block, AppSettings, Device } from '../types';
+import { Block, BlockData, AppSettings, Device } from '../types';
+import { calculateBlockHash } from '../utils/crypto';
 
 // Initialize the Google AI client
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
@@ -29,13 +30,6 @@ const responseSchema = {
   required: ['diff', 'summary', 'analysis', 'security_risks'],
 };
 
-interface AnalysisResult {
-    diff: string;
-    summary: string;
-    analysis: string;
-    security_risks: string;
-}
-
 // A simple diff generator for when AI is disabled
 const generateSimpleDiff = (oldConfig: string, newConfig: string): string => {
   const oldLines = new Set(oldConfig.split('\n'));
@@ -58,17 +52,19 @@ const generateSimpleDiff = (oldConfig: string, newConfig: string): string => {
 };
 
 
-const getAIAnalysisForNewConfig = async (
-  lastBlock: Block | null, 
+const addNewConfiguration = async (
+  deviceId: string, 
   newConfig: string, 
+  operator: string, 
+  currentChain: Block[],
   settings: AppSettings,
-  changeType: Block['change_type'],
+  changeType: BlockData['changeType'],
   changeDescription?: string,
-): Promise<{ analysisResult: AnalysisResult; aiSuccess: boolean }> => {
+): Promise<{ newBlock: Block; aiSuccess: boolean }> => {
   const { enabled: analysisEnabled, apiUrl: analysisApiUrl } = settings.ai.analysis;
-  const oldConfig = lastBlock?.config || '';
+  const lastBlock = currentChain[currentChain.length - 1];
   
-  let analysisResult: AnalysisResult;
+  let analysisResult;
   let aiSuccess = false;
 
   if (analysisEnabled) {
@@ -81,7 +77,7 @@ const getAIAnalysisForNewConfig = async (
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            previousConfig: oldConfig,
+            previousConfig: lastBlock.data.config,
             newConfig: newConfig,
             changeDescription: changeDescription,
           }),
@@ -91,18 +87,17 @@ const getAIAnalysisForNewConfig = async (
           throw new Error(`Custom API failed with status: ${response.status}`);
         }
 
-        const jsonResponse = await response.json();
-        if (!jsonResponse.diff || !jsonResponse.summary || !jsonResponse.analysis || !jsonResponse.security_risks) {
+        analysisResult = await response.json();
+        if (!analysisResult.diff || !analysisResult.summary || !analysisResult.analysis || !analysisResult.security_risks) {
           throw new Error('Custom API response is missing required fields.');
         }
-        analysisResult = jsonResponse;
         aiSuccess = true;
 
       } catch (error) {
         console.error("Custom API call failed, falling back to basic diff.", error);
         const errorDetails = error instanceof Error ? error.message : JSON.stringify(error);
         analysisResult = {
-          diff: generateSimpleDiff(oldConfig, newConfig),
+          diff: generateSimpleDiff(lastBlock.data.config, newConfig),
           summary: '自定义API分析失败，已记录基本变更。',
           analysis: `由于自定义API调用失败，无法提供详细分析。配置已按原样保存。\n错误详情: ${errorDetails}`,
           security_risks: '无法进行安全评估。'
@@ -118,7 +113,7 @@ const getAIAnalysisForNewConfig = async (
 
         Previous Configuration:
         ---
-        ${oldConfig}
+        ${lastBlock.data.config}
         ---
         New Configuration:
         ---
@@ -143,7 +138,7 @@ const getAIAnalysisForNewConfig = async (
           },
         });
         
-        analysisResult = JSON.parse(response.text);
+        analysisResult = JSON.parse(response.text.trim());
         aiSuccess = true;
 
       } catch (error) {
@@ -151,7 +146,7 @@ const getAIAnalysisForNewConfig = async (
         let errorDetails = error instanceof Error ? error.message : JSON.stringify(error);
 
         analysisResult = {
-          diff: generateSimpleDiff(oldConfig, newConfig),
+          diff: generateSimpleDiff(lastBlock.data.config, newConfig),
           summary: 'AI分析失败，已记录基本变更。',
           analysis: `由于AI模型调用失败，无法提供详细分析。配置已按原样保存。\n错误详情: ${errorDetails}`,
           security_risks: '无法进行安全评估。'
@@ -162,15 +157,45 @@ const getAIAnalysisForNewConfig = async (
   } else {
     console.log("Creating new block without AI analysis...");
     analysisResult = {
-      diff: generateSimpleDiff(oldConfig, newConfig),
+      diff: generateSimpleDiff(lastBlock.data.config, newConfig),
       summary: '用户禁用了AI分析。',
       analysis: '此配置变更在提交时未经过AI智能分析。',
       security_risks: '未进行安全评估，因为AI分析已被禁用。',
     };
     aiSuccess = true; // Success in the sense that the operation completed as requested
   }
+  
+  const newIndex = lastBlock.index + 1;
+  const newVersion = lastBlock.data.version + 1;
 
-  return { analysisResult, aiSuccess };
+  const newBlockData: BlockData = {
+    deviceId,
+    version: newVersion,
+    operator,
+    config: newConfig,
+    diff: analysisResult.diff,
+    summary: analysisResult.summary,
+    analysis: analysisResult.analysis,
+    security_risks: analysisResult.security_risks,
+    changeType: changeType,
+  };
+
+  const blockWithoutHash: Omit<Block, 'hash'> = {
+    index: newIndex,
+    timestamp: new Date().toISOString(),
+    data: newBlockData,
+    prev_hash: lastBlock.hash,
+  };
+  
+  const newHash = await calculateBlockHash(blockWithoutHash);
+  
+  const newBlock: Block = {
+    ...blockWithoutHash,
+    hash: newHash,
+  };
+  
+  console.log("New block created:", newBlock);
+  return { newBlock, aiSuccess };
 };
 
 
@@ -307,7 +332,7 @@ const checkConfiguration = async (
 };
 
 export const geminiService = {
-  getAIAnalysisForNewConfig,
+  addNewConfiguration,
   generateConfigFromPrompt,
   checkConfiguration,
 };

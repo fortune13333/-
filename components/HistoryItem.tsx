@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Block, User } from '../types';
 
@@ -22,14 +23,14 @@ const HistoryItem: React.FC<HistoryItemProps> = ({ block, isLatest, currentUser,
         <div className="flex justify-between items-start">
             <div className="flex-1 pr-4">
                 <p className="font-bold text-white">
-                    版本 {block.version}
-                    {block.change_type === 'rollback' && <span className="text-xs text-yellow-400 bg-yellow-900/50 px-2 py-0.5 rounded-full ml-2">回滚点</span>}
+                    版本 {block.data.version}
+                    {block.data.changeType === 'rollback' && <span className="text-xs text-yellow-400 bg-yellow-900/50 px-2 py-0.5 rounded-full ml-2">回滚点</span>}
                 </p>
                 <p className="text-sm text-slate-300 mt-1">
-                    {block.summary}
+                    {block.data.summary}
                 </p>
                  <p className="text-xs text-slate-400 mt-2">
-                    <span className="font-semibold">操作员:</span> <span className="font-mono">{block.operator}</span>
+                    <span className="font-semibold">操作员:</span> <span className="font-mono">{block.data.operator}</span>
                 </p>
             </div>
             <div className="text-right flex-shrink-0">
