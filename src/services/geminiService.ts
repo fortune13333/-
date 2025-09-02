@@ -1,9 +1,19 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { Block, BlockData, AppSettings, Device } from '../types';
 
-// Initialize the Google AI client
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+// --- Lazy Initializer for the Google AI Client ---
+let ai: GoogleGenAI | null = null;
+
+const getAiClient = (): GoogleGenAI => {
+    const apiKey = process.env.API_KEY;
+    if (!apiKey) {
+        throw new Error('API Key for Gemini is not configured. Please ensure the API_KEY environment variable is set.');
+    }
+    if (!ai) {
+        ai = new GoogleGenAI({ apiKey });
+    }
+    return ai;
+};
 
 // Define the expected JSON response structure for the Gemini model
 const responseSchema = {
@@ -137,7 +147,8 @@ const analyzeConfigurationChange = async (
       `;
 
       try {
-        const response = await ai.models.generateContent({
+        const aiClient = getAiClient(); // Lazy load the client
+        const response = await aiClient.models.generateContent({
           model: "gemini-2.5-flash",
           contents: prompt,
           config: {
@@ -198,7 +209,6 @@ const generateConfigFromPrompt = async (
     }
     const { apiUrl } = settings.ai.commandGeneration;
     
-    // Simple mapping from our types to potential netmiko-style types for better prompts
     const syntaxType = {
         'Router': 'Cisco IOS style',
         'Switch': 'Cisco IOS style',
@@ -240,7 +250,8 @@ const generateConfigFromPrompt = async (
     `;
 
     try {
-        const response = await ai.models.generateContent({
+        const aiClient = getAiClient();
+        const response = await aiClient.models.generateContent({
             model: "gemini-2.5-flash",
             contents: prompt,
         });
@@ -307,7 +318,8 @@ const checkConfiguration = async (
     `;
 
     try {
-        const response = await ai.models.generateContent({
+        const aiClient = getAiClient();
+        const response = await aiClient.models.generateContent({
             model: "gemini-2.5-flash",
             contents: prompt,
         });

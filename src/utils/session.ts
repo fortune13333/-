@@ -1,5 +1,5 @@
-
 import { User, SessionUser } from '../types';
+import { createApiUrl } from './apiUtils';
 
 /**
  * Registers the current user's session with the agent for a specific device.
@@ -11,7 +11,8 @@ import { User, SessionUser } from '../types';
 export const joinDeviceSessionAPI = async (deviceId: string, user: User, sessionId: string, agentApiUrl: string | undefined) => {
     if (!agentApiUrl || !user) return;
     try {
-        await fetch(`${agentApiUrl}/api/sessions/${deviceId}`, {
+        const url = createApiUrl(agentApiUrl, `/api/sessions/${deviceId}`);
+        await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username: user.username, sessionId }),
@@ -30,8 +31,9 @@ export const joinDeviceSessionAPI = async (deviceId: string, user: User, session
 export const leaveDeviceSessionAPI = async (deviceId: string, sessionId: string, agentApiUrl: string | undefined) => {
     if (!agentApiUrl) return;
     try {
+        const url = createApiUrl(agentApiUrl, `/api/sessions/${deviceId}/${sessionId}`);
         // Use keepalive for requests that might be sent during page unload
-        await fetch(`${agentApiUrl}/api/sessions/${deviceId}/${sessionId}`, {
+        await fetch(url, {
             method: 'DELETE',
             keepalive: true,
         });
@@ -49,7 +51,8 @@ export const leaveDeviceSessionAPI = async (deviceId: string, sessionId: string,
 export const getActiveSessionsAPI = async (deviceId: string, agentApiUrl: string): Promise<SessionUser[]> => {
     if (!agentApiUrl) return [];
     try {
-        const response = await fetch(`${agentApiUrl}/api/sessions/${deviceId}`);
+        const url = createApiUrl(agentApiUrl, `/api/sessions/${deviceId}`);
+        const response = await fetch(url);
         if (!response.ok) return [];
         return await response.json();
     } catch (e) {

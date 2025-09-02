@@ -1,0 +1,133 @@
+{
+  "devices": [
+    {
+      "id": "RTR01-NYC",
+      "name": "1",
+      "ipAddress": "192.168.1.1",
+      "type": "Router"
+    }
+  ],
+  "blockchains": {
+    "RTR01-NYC": [
+      {
+        "index": 0,
+        "timestamp": "2025-09-02T05:42:22.190245Z",
+        "data": {
+          "deviceId": "RTR01-NYC",
+          "version": 1,
+          "operator": "system_init",
+          "config": "hostname 1\n!\n! Initial configuration created by ChainTrace.",
+          "diff": "+ hostname 1\n+ !\n+ ! Initial configuration created by ChainTrace.",
+          "changeType": "initial",
+          "summary": "设备已创建。",
+          "analysis": "这是新设备的第一个配置区块，用于建立基线。",
+          "security_risks": "无。这是一个标准的初始设置。"
+        },
+        "prev_hash": "0",
+        "hash": "4f10829e29bdfe89c28b53ad8c715dd1166e9685f334dfcbd9c90610f759aa6e"
+      },
+      {
+        "index": 1,
+        "timestamp": "2025-09-02T05:42:24.330643Z",
+        "data": {
+          "deviceId": "RTR01-NYC",
+          "version": 2,
+          "operator": "admin",
+          "config": "hostname 1\n!\n! Initial configuration created by ChainTrace.",
+          "diff": "No textual changes detected.",
+          "changeType": "update",
+          "summary": "用户禁用了AI分析。",
+          "analysis": "此配置变更在提交时未经过AI智能分析。",
+          "security_risks": "未进行安全评估，因为AI分析已被禁用。"
+        },
+        "prev_hash": "4f10829e29bdfe89c28b53ad8c715dd1166e9685f334dfcbd9c90610f759aa6e",
+        "hash": "8d08221b68b904601844b52deedc2686a180451e633229d774d817cbcfe4f1c1"
+      },
+      {
+        "index": 2,
+        "timestamp": "2025-09-02T05:43:36.197705Z",
+        "data": {
+          "deviceId": "RTR01-NYC",
+          "version": 3,
+          "operator": "admin",
+          "config": "hostname 1\n!\n! Initial configuration created by ChainTrace.",
+          "diff": "No textual changes detected.",
+          "changeType": "update",
+          "summary": "自定义API分析失败，已记录基本变更。",
+          "analysis": "由于自定义API调用失败，无法提供详细分析。配置已按原样保存。\n错误详情: Custom API failed with status: 404",
+          "security_risks": "无法进行安全评估。"
+        },
+        "prev_hash": "8d08221b68b904601844b52deedc2686a180451e633229d774d817cbcfe4f1c1",
+        "hash": "b8cad70957200b9571f489e07cccdafc10d5fd3b3007f761a0de197b58050aa3"
+      },
+      {
+        "index": 3,
+        "timestamp": "2025-09-02T05:45:12.899106Z",
+        "data": {
+          "deviceId": "RTR01-NYC",
+          "version": 4,
+          "operator": "admin",
+          "config": "hostname 1\n!\n! Initial configuration created by ChainTrace.",
+          "diff": "No textual changes detected.",
+          "changeType": "update",
+          "summary": "自定义API分析失败，已记录基本变更。",
+          "analysis": "由于自定义API调用失败，无法提供详细分析。配置已按原样保存。\n错误详情: Custom API failed with status: 404",
+          "security_risks": "无法进行安全评估。"
+        },
+        "prev_hash": "b8cad70957200b9571f489e07cccdafc10d5fd3b3007f761a0de197b58050aa3",
+        "hash": "007eda1b4d5c92416d4f60f496c77abad67b470e1fc867dd311428973c33ad3e"
+      },
+      {
+        "index": 4,
+        "timestamp": "2025-09-02T05:45:46.276868Z",
+        "data": {
+          "deviceId": "RTR01-NYC",
+          "version": 5,
+          "operator": "admin",
+          "config": "hostname 1\n!\n! Initial configuration created by ChainTrace.",
+          "diff": "",
+          "changeType": "update",
+          "summary": "此配置更改没有任何实际内容，因为它与之前的配置完全相同。",
+          "analysis": "新旧配置完全相同，意味着设备上没有发生任何实际的配置更改。这可能表示一次空操作、验证操作或者配置系统的一次无意义的同步。",
+          "security_risks": "未发现任何安全风险，因为配置没有发生变化。"
+        },
+        "prev_hash": "007eda1b4d5c92416d4f60f496c77abad67b470e1fc867dd311428973c33ad3e",
+        "hash": "d62a09fe16cb6a6ab8fb8f14402087b37b626fbd6d726e1c120b638552284711"
+      },
+      {
+        "index": 5,
+        "timestamp": "2025-09-02T05:47:26.805338Z",
+        "data": {
+          "deviceId": "RTR01-NYC",
+          "version": 6,
+          "operator": "operator1",
+          "config": "hostname 1\n!\n! Initial configuration created by ChainTra",
+          "diff": "- ! Initial configuration created by ChainTrace.\n+ ! Initial configuration created by ChainTra",
+          "changeType": "update",
+          "summary": "用户禁用了AI分析。",
+          "analysis": "此配置变更在提交时未经过AI智能分析。",
+          "security_risks": "未进行安全评估，因为AI分析已被禁用。"
+        },
+        "prev_hash": "d62a09fe16cb6a6ab8fb8f14402087b37b626fbd6d726e1c120b638552284711",
+        "hash": "d4f834fd5ec4233f59da88e1fc68ee5b01351e9d145cc1a84883d867080b35bc"
+      },
+      {
+        "index": 6,
+        "timestamp": "2025-09-02T05:47:50.128386Z",
+        "data": {
+          "deviceId": "RTR01-NYC",
+          "version": 7,
+          "operator": "admin",
+          "config": "hostname 1\n!\n! Initial configuration created by ChainTrace.",
+          "diff": "-! Initial configuration created by ChainTra\n+! Initial configuration created by ChainTrace.",
+          "changeType": "rollback",
+          "summary": "此配置更改将设备配置从版本 6 回滚到版本 3，并修正了初始配置注释中的一个拼写错误。",
+          "analysis": "此次更改修正了配置中一个注释行的拼写错误，将“ChainTra”更正为“ChainTrace.”，此改动属于纯文本修正，不影响设备的功能或行为。",
+          "security_risks": "未发现明显的安全风险，此更改仅涉及注释的拼写修正。"
+        },
+        "prev_hash": "d4f834fd5ec4233f59da88e1fc68ee5b01351e9d145cc1a84883d867080b35bc",
+        "hash": "5f3865847da231bae7996d53864afd2e0995fc0e499f3db7df765fe8b3a469c3"
+      }
+    ]
+  }
+}

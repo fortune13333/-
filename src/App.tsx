@@ -11,6 +11,7 @@ import Login from './components/Login';
 import ConfirmationModal from './components/ConfirmationModal';
 import { Toaster, toast } from 'react-hot-toast';
 import { leaveDeviceSessionAPI } from './utils/session';
+import { createApiUrl } from './utils/apiUtils';
 
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -52,7 +53,8 @@ const App: React.FC = () => {
     if (!isSilent) setIsLoading(true);
 
     try {
-      const response = await fetch(`${settings.agentApiUrl}/api/data`);
+      const url = createApiUrl(settings.agentApiUrl, '/api/data');
+      const response = await fetch(url);
       if (!response.ok) {
         let detail = response.statusText;
         try {
@@ -119,6 +121,8 @@ const App: React.FC = () => {
 
       // 3. Cleanup on component unmount or when dependencies change
       return () => clearInterval(intervalId);
+    } else if (!settings.agentApiUrl) {
+        setIsLoading(false);
     }
   }, [settings.agentApiUrl, currentUser, fetchDataFromAgent]);
   
@@ -194,11 +198,16 @@ const App: React.FC = () => {
   };
 
   const handleResetData = async () => {
+    if (!settings.agentApiUrl) {
+        toast.error('未配置代理地址。');
+        return;
+    }
     const isConfirmed = window.confirm("您确定要重置所有数据到初始状态吗？所有已添加的配置历史将被清除。");
-    if (isConfirmed && settings.agentApiUrl) {
+    if (isConfirmed) {
       setIsLoading(true);
       try {
-        const response = await fetch(`${settings.agentApiUrl}/api/reset`, { method: 'POST' });
+        const url = createApiUrl(settings.agentApiUrl, '/api/reset');
+        const response = await fetch(url, { method: 'POST' });
         if (!response.ok) throw new Error("代理重置失败");
         await fetchDataFromAgent(); // Refetch the now-empty data
         setSelectedDevice(null);
@@ -218,7 +227,8 @@ const App: React.FC = () => {
     }
     const toastId = toast.loading(`正在添加设备 ${newDeviceData.name}...`);
     try {
-        const response = await fetch(`${settings.agentApiUrl}/api/devices`, {
+        const url = createApiUrl(settings.agentApiUrl, '/api/devices');
+        const response = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(newDeviceData),
@@ -227,7 +237,8 @@ const App: React.FC = () => {
             throw new Error(`设备 ID "${newDeviceData.id}" 已存在。`);
         }
         if (!response.ok) {
-            throw new Error('代理返回错误。');
+            const errorData = await response.json().catch(() => ({'detail': '代理返回错误。'}));
+            throw new Error(errorData.detail || '代理返回错误。');
         }
         const newDevice = await response.json();
         await fetchDataFromAgent(); // Refresh all data
@@ -249,6 +260,10 @@ const App: React.FC = () => {
       toast.error('配置不能为空。');
       return;
     }
+    if (!settings.agentApiUrl) {
+      toast.error('未配置代理地址。');
+      return;
+    }
     
     setIsLoading(true);
     const toastId = toast.loading(settings.ai.analysis.enabled ? '正在提交并请求 AI 分析...' : '正在提交...');
@@ -263,8 +278,8 @@ const App: React.FC = () => {
         'update'
       );
 
-      // Post the data payload to the agent, which will build and save the block
-      const response = await fetch(`${settings.agentApiUrl}/api/blockchains/${deviceId}`, {
+      const url = createApiUrl(settings.agentApiUrl, `/api/blockchains/${deviceId}`);
+      const response = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
@@ -314,6 +329,7 @@ const App: React.FC = () => {
   const executeRollback = async () => {
     if (!rollbackTarget || !currentUser || !settings.agentApiUrl) return;
     
+    // Capture the target block in a local variable to prevent race conditions.
     const blockToRollbackTo = rollbackTarget;
     const deviceId = blockToRollbackTo.data.deviceId;
     
@@ -322,7 +338,6 @@ const App: React.FC = () => {
     const toastId = toast.loading(`正在回滚至版本 ${blockToRollbackTo.data.version}...`);
 
     try {
-      // The current chain must be fetched fresh from state before passing to service
       const currentChain = blockchains[deviceId] || []; 
       const lastVersion = currentChain.length > 0 ? currentChain[currentChain.length - 1].data.version : 0;
       const rollbackConfig = blockToRollbackTo.data.config;
@@ -333,7 +348,8 @@ const App: React.FC = () => {
         settings, 'rollback', changeDescription
       );
 
-      const response = await fetch(`${settings.agentApiUrl}/api/blockchains/${deviceId}`, {
+      const url = createApiUrl(settings.agentApiUrl, `/api/blockchains/${deviceId}`);
+      const response = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
@@ -349,7 +365,7 @@ const App: React.FC = () => {
 
     } catch (error) {
       console.error("Error rolling back configuration:", error);
-      const errorMessage = error instanceof Error ? error.message : '未知错误。';
+      const errorMessage = error instanceof Error ? error.message : '发生未知错误。';
       toast.error(`回滚失败: ${errorMessage}`, { id: toastId });
     } finally {
       setIsLoading(false);
@@ -362,7 +378,8 @@ const App: React.FC = () => {
     if (!deviceToDelete) return;
 
     try {
-        const response = await fetch(`${settings.agentApiUrl}/api/devices/${deviceId}`, {
+        const url = createApiUrl(settings.agentApiUrl, `/api/devices/${deviceId}`);
+        const response = await fetch(url, {
             method: 'DELETE'
         });
         if (!response.ok) throw new Error("代理删除设备失败");
@@ -381,7 +398,7 @@ const App: React.FC = () => {
   if (!currentUser) {
     return (
         <div className="min-h-screen flex items-center justify-center">
-            <Toaster position="top-center" toastOptions={{ className: '!bg-slate-700 !text-white' }} />
+            <Toaster position="top-center" toastOptions={{ className: '!bg-indigo-800 !text-zinc-100 !border !border-indigo-700 !shadow-lg' }} />
             <Login onLogin={handleLogin} mockUsers={MOCK_USERS} />
         </div>
     );
@@ -389,7 +406,7 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen">
-      <Toaster position="top-center" toastOptions={{ className: '!bg-slate-700 !text-white' }} />
+      <Toaster position="top-center" toastOptions={{ className: '!bg-indigo-800 !text-zinc-100 !border !border-indigo-700 !shadow-lg' }} />
       <Header 
         currentUser={currentUser}
         onLogout={handleLogout}
@@ -444,10 +461,10 @@ const App: React.FC = () => {
           confirmText="确认回滚"
           confirmButtonVariant="warning"
         >
-          <p className="text-sm text-slate-300">
+          <p className="text-sm text-zinc-300">
             您确定要将设备 <strong className="font-bold text-white">{rollbackTarget.data.deviceId}</strong> 的配置回滚到 <strong className="font-bold text-white">版本 {rollbackTarget.data.version}</strong> 吗？
           </p>
-          <p className="mt-2 text-xs text-slate-400">
+          <p className="mt-2 text-xs text-zinc-400">
             此操作将在区块链上创建一个新的配置记录，而不是删除历史记录。
           </p>
         </ConfirmationModal>

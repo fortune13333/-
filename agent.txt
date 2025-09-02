@@ -1,5 +1,5 @@
 #
-# ChainTrace Agent V3.0 - LAN Collaboration Server
+# ChainTrace Agent V3.4 - Collaboration Stability Final Fix
 #
 import sys
 import configparser
@@ -23,12 +23,25 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 # --- Data File and Lock ---
 DATA_FILE = Path("chaintrace_data.json")
-# Thread lock to prevent race conditions when reading/writing the JSON data file
+# Thread lock to prevent race conditions during read-modify-write operations
 data_lock = threading.Lock()
 
+# --- In-memory store for active user sessions ---
+ACTIVE_SESSIONS: Dict[str, List[Dict[str, str]]] = {}
+sessions_lock = threading.Lock()
+
+# --- Hashing Helper ---
+def _calculate_block_hash(block_data_dict: Dict, index: int, timestamp: str, prev_hash: str) -> str:
+    """Calculates a deterministic SHA-256 hash for a block's content."""
+    block_content_str = (
+        f"{index}{timestamp}"
+        f"{json.dumps(block_data_dict, sort_keys=True, separators=(',', ':'), ensure_ascii=False)}"
+        f"{prev_hash}"
+    )
+    return hashlib.sha256(block_content_str.encode('utf-8')).hexdigest()
+
 # --- Initial Data Structure ---
-# This will be used if chaintrace_data.json does not exist.
-INITIAL_DATA = {
+INITIAL_DATA_RAW = {
     "devices": [
         {"id": "RTR01-NYC", "name": "Core Router NYC", "ipAddress": "192.168.1.1", "type": "Router"},
         {"id": "SW01-SFO", "name": "Access Switch SFO", "ipAddress": "10.10.5.254", "type": "Switch"},
@@ -37,67 +50,50 @@ INITIAL_DATA = {
     "blockchains": {
         "RTR01-NYC": [{
             "index": 0, "timestamp": "2023-01-01T10:00:00Z",
-            "data": {
-                "deviceId": "RTR01-NYC", "version": 1, "operator": "system_init",
-                "config": "hostname RTR01-NYC\n!\ninterface GigabitEthernet0/0\n ip address 192.168.1.1 255.255.255.0\n no shutdown\n!\nrouter ospf 1\n network 192.168.1.0 0.0.0.255 area 0\n!\nend",
-                "diff": "+ hostname RTR01-NYC\n+ !\n+ interface GigabitEthernet0/0\n+  ip address 192.168.1.1 255.255.255.0\n+  no shutdown\n+ !\n+ router ospf 1\n+  network 192.168.1.0 0.0.0.255 area 0\n+ !\n+ end",
-                "changeType": "initial", "summary": "初始系统配置。",
-                "analysis": "这是设备的第一个配置区块，用于建立基线。",
-                "security_risks": "无。这是一个标准的初始设置。",
-            },
-            "prev_hash": "0", "hash": "4a58241e383de98ce0cc38a84a63a5d0fbb8daf9cb8607f96bca9bdbfbc1b04a"
+            "data": { "deviceId": "RTR01-NYC", "version": 1, "operator": "system_init", "config": "hostname RTR01-NYC\n!\ninterface GigabitEthernet0/0\n ip address 192.168.1.1 255.255.255.0\n no shutdown\n!\nrouter ospf 1\n network 192.168.1.0 0.0.0.255 area 0\n!\nend", "diff": "+ hostname RTR01-NYC\n+ !\n+ interface GigabitEthernet0/0\n+  ip address 192.168.1.1 255.255.255.0\n+  no shutdown\n+ !\n+ router ospf 1\n+  network 192.168.1.0 0.0.0.255 area 0\n+ !\n+ end", "changeType": "initial", "summary": "初始系统配置。", "analysis": "这是设备的第一个配置区块，用于建立基线。", "security_risks": "无。这是一个标准的初始设置。", }, "prev_hash": "0"
         }],
         "SW01-SFO": [{
             "index": 0, "timestamp": "2023-01-02T11:30:00Z",
-            "data": {
-                "deviceId": "SW01-SFO", "version": 1, "operator": "system_init",
-                "config": "hostname SW01-SFO\n!\nvlan 10\n name USERS\n!\ninterface FastEthernet0/1\n switchport mode access\n switchport access vlan 10\n!\nend",
-                "diff": "+ hostname SW01-SFO\n+ !\n+ vlan 10\n+  name USERS\n+ !\n+ interface FastEthernet0/1\n+  switchport mode access\n+  switchport access vlan 10\n+ !\n+ end",
-                "changeType": "initial", "summary": "初始系统配置。",
-                "analysis": "这是设备的第一个配置区块，用于建立基线。",
-                "security_risks": "无。这是一个标准的初始设置。",
-            },
-            "prev_hash": "0", "hash": "8525b6999335f60b45d06456f43702951b1a43a75871f3014a6e35591e1d318e"
+            "data": { "deviceId": "SW01-SFO", "version": 1, "operator": "system_init", "config": "hostname SW01-SFO\n!\nvlan 10\n name USERS\n!\ninterface FastEthernet0/1\n switchport mode access\n switchport access vlan 10\n!\nend", "diff": "+ hostname SW01-SFO\n+ !\n+ vlan 10\n+  name USERS\n+ !\n+ interface FastEthernet0/1\n+  switchport mode access\n+  switchport access vlan 10\n+ !\n+ end", "changeType": "initial", "summary": "初始系统配置。", "analysis": "这是设备的第一个配置区块，用于建立基线。", "security_risks": "无。这是一个标准的初始设置。", }, "prev_hash": "0"
         }],
         "FW01-LON": [{
             "index": 0, "timestamp": "2023-01-03T09:00:00Z",
-            "data": {
-                "deviceId": "FW01-LON", "version": 1, "operator": "system_init",
-                "config": "hostname FW01-LON\n!\nip access-list extended INCOMING_FILTER\n permit tcp any host 203.0.113.1 eq 443\n deny ip any any log\n!\ninterface GigabitEthernet0/1\n ip access-group INCOMING_FILTER in\n!\nend",
-                "diff": "+ hostname FW01-LON\n+ !\n+ ip access-list extended INCOMING_FILTER\n+  permit tcp any host 203.0.113.1 eq 443\n+  deny ip any any log\n+ !\n+ interface GigabitEthernet0/1\n+  ip access-group INCOMING_FILTER in\n+ !\n+ end",
-                "changeType": "initial", "summary": "初始系统配置。",
-                "analysis": "这是设备的第一个配置区块，用于建立基线。",
-                "security_risks": "无。这是一个标准的初始设置。",
-            },
-            "prev_hash": "0", "hash": "3650a3163351368a27d142b918738327b87c712852277d3257085a3c631e7845"
+            "data": { "deviceId": "FW01-LON", "version": 1, "operator": "system_init", "config": "hostname FW01-LON\n!\nip access-list extended INCOMING_FILTER\n permit tcp any host 203.0.113.1 eq 443\n deny ip any any log\n!\ninterface GigabitEthernet0/1\n ip access-group INCOMING_FILTER in\n!\nend", "diff": "+ hostname FW01-LON\n+ !\n+ ip access-list extended INCOMING_FILTER\n+  permit tcp any host 203.0.113.1 eq 443\n+  deny ip any any log\n+ !\n+ interface GigabitEthernet0/1\n+  ip access-group INCOMING_FILTER in\n+ !\n+ end", "changeType": "initial", "summary": "初始系统配置。", "analysis": "这是设备的第一个配置区块，用于建立基线。", "security_risks": "无。这是一个标准的初始设置。", }, "prev_hash": "0"
         }]
     }
 }
 
+def get_initial_data_with_hashes():
+    data = json.loads(json.dumps(INITIAL_DATA_RAW))
+    for chain in data["blockchains"].values():
+        for block in chain:
+            block["hash"] = _calculate_block_hash(block["data"], block["index"], block["timestamp"], block["prev_hash"])
+    return data
+
+INITIAL_DATA = get_initial_data_with_hashes()
+
 # --- Data Handling Functions ---
 
-def load_data() -> Dict[str, Any]:
-    """Loads data from the JSON file. Creates it if it doesn't exist."""
-    with data_lock:
-        if not DATA_FILE.exists():
-            logging.info(f"{DATA_FILE} not found. Creating with initial data.")
-            save_data(INITIAL_DATA)
-            return INITIAL_DATA
-        try:
-            with open(DATA_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError) as e:
-            logging.error(f"Error reading {DATA_FILE}: {e}. Returning empty structure.")
-            return {"devices": [], "blockchains": {}}
+def _load_data_nolock() -> Dict[str, Any]:
+    """Loads data without acquiring a lock. MUST be called from within a locked context."""
+    if not DATA_FILE.exists():
+        logging.info(f"{DATA_FILE} not found. Creating with initial data.")
+        _save_data_nolock(INITIAL_DATA)
+        return INITIAL_DATA
+    try:
+        with open(DATA_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except (json.JSONDecodeError, IOError) as e:
+        logging.error(f"Error reading {DATA_FILE}: {e}. Returning empty structure.")
+        return {"devices": [], "blockchains": {}}
 
-def save_data(data: Dict[str, Any]):
-    """Saves data to the JSON file."""
-    with data_lock:
-        try:
-            with open(DATA_FILE, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-        except IOError as e:
-            logging.error(f"Could not write to {DATA_FILE}: {e}")
+def _save_data_nolock(data: Dict[str, Any]):
+    """Saves data without acquiring a lock. MUST be called from within a locked context."""
+    try:
+        with open(DATA_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except IOError as e:
+        logging.error(f"Could not write to {DATA_FILE}: {e}")
 
 # --- Configuration Loading ---
 
@@ -118,9 +114,7 @@ class Device(BaseModel):
     ipAddress: str
     type: str
 
-class BlockData(BaseModel):
-    deviceId: str
-    version: int
+class NewBlockPayload(BaseModel):
     operator: str
     config: str
     diff: str
@@ -128,23 +122,20 @@ class BlockData(BaseModel):
     summary: str
     analysis: str
     security_risks: str
-
-class Block(BaseModel):
-    index: int
-    timestamp: str
-    data: BlockData
-    prev_hash: str
-    hash: str
     
 class ConfigPayload(BaseModel):
     config: str
+
+class SessionPayload(BaseModel):
+    username: str
+    sessionId: str
 
 # --- FastAPI App Initialization ---
 
 app = FastAPI(
     title="ChainTrace Local Agent",
     description="Acts as a bridge between the ChainTrace UI and real network devices, and serves as the central data store for LAN collaboration.",
-    version="3.0.0",
+    version="3.4.0",
 )
 
 app.add_middleware(
@@ -160,17 +151,15 @@ app.add_middleware(
 def get_device_info(device_id: str):
     device_id_upper = device_id.upper()
     if not config.has_option('device_map', device_id_upper):
-        logging.warning(f"Device ID '{device_id}' not found in config.ini's [device_map].")
         return None
     try:
         host, device_type = config.get('device_map', device_id_upper).split(',')
         return {
-            'host': host.strip(),
-            'device_type': device_type.strip(),
+            'host': host.strip(), 'device_type': device_type.strip(),
             'username': config.get('credentials', 'username'),
             'password': config.get('credentials', 'password'),
             'secret': config.get('credentials', 'secret', fallback=None),
-            'timeout': 15,  # Add a 15-second connection timeout for better UX
+            'timeout': 15,
         }
     except (configparser.NoSectionError, configparser.NoOptionError) as e:
         logging.error(f"Configuration error for device '{device_id}': {e}")
@@ -184,94 +173,112 @@ def is_simulation_mode():
 
 # --- API Endpoints ---
 
-# --- Data Management API ---
 @app.get("/api/data")
 def get_all_data():
     logging.info("Request received for GET /api/data")
-    return load_data()
+    with data_lock:
+        return _load_data_nolock()
 
 @app.post("/api/reset", status_code=204)
 def reset_data():
     logging.warning("Request received to RESET all data.")
-    save_data(INITIAL_DATA)
+    with data_lock:
+        _save_data_nolock(INITIAL_DATA)
     return {}
 
-@app.post("/api/devices", response_model=Device, status_code=201)
+@app.post("/api/devices", status_code=201)
 def add_device(device: Device):
     logging.info(f"Request received to ADD device: {device.id}")
-    data = load_data()
-    
-    if any(d['id'] == device.id for d in data['devices']):
-        raise HTTPException(status_code=409, detail=f"Device with ID '{device.id}' already exists.")
-    
-    data['devices'].append(device.dict())
-    
-    # Create a genesis block for the new device
-    genesis_block_data = {
-        "deviceId": device.id, "version": 1, "operator": "system_init",
-        "config": f"hostname {device.name}\n!\n! Initial configuration created by ChainTrace.",
-        "diff": f"+ hostname {device.name}\n+ !\n+ ! Initial configuration created by ChainTrace.",
-        "changeType": "initial", "summary": "设备已创建。",
-        "analysis": "这是新设备的第一个配置区块，用于建立基线。",
-        "security_risks": "无。这是一个标准的初始设置。",
-    }
-    timestamp = datetime.datetime.utcnow().isoformat() + "Z"
-    prev_hash = "0"
-    index = 0
-    
-    block_content_str = f"{index}{timestamp}{json.dumps(genesis_block_data, sort_keys=True, separators=(',', ':'))}{prev_hash}"
-    hash_hex = hashlib.sha256(block_content_str.encode('utf-8')).hexdigest()
-    
-    genesis_block = {
-        "index": index, "timestamp": timestamp, "data": genesis_block_data,
-        "prev_hash": prev_hash, "hash": hash_hex
-    }
-    data['blockchains'][device.id] = [genesis_block]
-    
-    save_data(data)
+    with data_lock:
+        data = _load_data_nolock()
+        
+        if any(d['id'] == device.id for d in data['devices']):
+            raise HTTPException(status_code=409, detail=f"Device with ID '{device.id}' already exists.")
+        
+        data['devices'].append(device.dict())
+        
+        genesis_block_data = {
+            "deviceId": device.id, "version": 1, "operator": "system_init",
+            "config": f"hostname {device.name}\n!\n! Initial configuration created by ChainTrace.",
+            "diff": f"+ hostname {device.name}\n+ !\n+ ! Initial configuration created by ChainTrace.",
+            "changeType": "initial", "summary": "设备已创建。",
+            "analysis": "这是新设备的第一个配置区块，用于建立基线。",
+            "security_risks": "无。这是一个标准的初始设置。",
+        }
+        timestamp = datetime.datetime.utcnow().isoformat() + "Z"
+        hash_hex = _calculate_block_hash(genesis_block_data, 0, timestamp, "0")
+        
+        genesis_block = {
+            "index": 0, "timestamp": timestamp, "data": genesis_block_data,
+            "prev_hash": "0", "hash": hash_hex
+        }
+        data['blockchains'][device.id] = [genesis_block]
+        
+        _save_data_nolock(data)
     return device
 
 @app.delete("/api/devices/{device_id}", status_code=204)
 def delete_device(device_id: str):
     logging.info(f"Request received to DELETE device: {device_id}")
-    data = load_data()
-    
-    initial_device_count = len(data['devices'])
-    data['devices'] = [d for d in data['devices'] if d['id'] != device_id]
-    
-    if len(data['devices']) == initial_device_count:
-        raise HTTPException(status_code=404, detail=f"Device with ID '{device_id}' not found.")
+    with data_lock:
+        data = _load_data_nolock()
         
-    if device_id in data['blockchains']:
-        del data['blockchains'][device_id]
-    
-    save_data(data)
+        initial_device_count = len(data['devices'])
+        data['devices'] = [d for d in data['devices'] if d['id'] != device_id]
+        
+        if len(data['devices']) == initial_device_count:
+            raise HTTPException(status_code=404, detail=f"Device with ID '{device_id}' not found.")
+            
+        if device_id in data['blockchains']:
+            del data['blockchains'][device_id]
+        
+        _save_data_nolock(data)
     return {}
 
-@app.post("/api/blockchains/{device_id}", response_model=Block, status_code=201)
-def add_block(device_id: str, block: Block):
+@app.post("/api/blockchains/{device_id}", status_code=201)
+def add_block(device_id: str, payload: NewBlockPayload):
     logging.info(f"Request received to ADD block to device: {device_id}")
-    data = load_data()
-    
-    if device_id not in data['blockchains']:
-        raise HTTPException(status_code=404, detail=f"Blockchain for device ID '{device_id}' not found.")
-    
-    data['blockchains'][device_id].append(block.dict())
-    save_data(data)
-    return block
+    new_block_to_return = None
+    with data_lock:
+        data = _load_data_nolock()
+        
+        if device_id not in data['blockchains'] or not data['blockchains'][device_id]:
+            raise HTTPException(status_code=404, detail=f"Blockchain for device ID '{device_id}' not found or is empty.")
+        
+        chain = data['blockchains'][device_id]
+        last_block = chain[-1]
+        
+        new_index = last_block['index'] + 1
+        new_version = last_block['data']['version'] + 1
+        prev_hash = last_block['hash']
+        timestamp = datetime.datetime.utcnow().isoformat() + "Z"
+        
+        new_block_data = {"deviceId": device_id, "version": new_version, **payload.dict()}
+        new_hash = _calculate_block_hash(new_block_data, new_index, timestamp, prev_hash)
+        
+        new_block = {
+            "index": new_index, "timestamp": timestamp, "data": new_block_data,
+            "prev_hash": prev_hash, "hash": new_hash
+        }
+        
+        chain.append(new_block)
+        _save_data_nolock(data)
+        new_block_to_return = new_block
 
-# --- Device Interaction API ---
+    return new_block_to_return
+
 @app.get("/api/health")
 def health_check():
-    logging.info("Health check endpoint was hit.")
-    return {"status": "ok", "message": "ChainTrace Agent is running."}
+    return {
+        "status": "ok", "message": "ChainTrace Agent is running.",
+        "mode": "simulation" if is_simulation_mode() else "live"
+    }
 
 @app.get("/api/device/{device_id}/config")
 def get_config(device_id: str):
-    logging.info(f"Received request to GET config for device: {device_id}")
+    logging.info(f"Received GET config for device: {device_id}")
     if is_simulation_mode():
-        logging.info(f"SIMULATION MODE: Returning mock configuration for {device_id}.")
-        mock_config = f"hostname {device_id}\n!\ninterface Loopback0\n ip address 1.1.1.1 255.255.255.255\n!\n! End of simulated config"
+        mock_config = f"hostname {device_id}\n!\n! End of simulated config"
         return {"config": mock_config}
 
     device_info = get_device_info(device_id)
@@ -279,28 +286,19 @@ def get_config(device_id: str):
         raise HTTPException(status_code=404, detail=f"Device ID '{device_id}' not found in configuration.")
 
     try:
-        logging.info(f"Attempting to connect to {device_info['host']}...")
         with ConnectHandler(**device_info) as net_connect:
             net_connect.enable()
             output = net_connect.send_command('show running-config', expect_string=r'#')
-        logging.info(f"Successfully retrieved config from {device_info['host']}.")
         return {"config": output}
-    except NetmikoTimeoutException:
-        logging.error(f"Connection to {device_info['host']} timed out.")
-        raise HTTPException(status_code=504, detail="Connection timed out. Check IP address and network connectivity.")
-    except NetmikoAuthenticationException:
-        logging.error(f"Authentication failed for {device_info['host']}.")
-        raise HTTPException(status_code=401, detail="Authentication failed. Check credentials in config.ini.")
     except Exception as e:
-        logging.error(f"An unexpected error occurred for device {device_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")
+        logging.error(f"Error connecting to {device_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to connect to device: {e}")
 
 @app.post("/api/device/{device_id}/config")
 def set_config(device_id: str, payload: ConfigPayload):
-    logging.info(f"Received request to POST config for device: {device_id}")
+    logging.info(f"Received POST config for device: {device_id}")
     if is_simulation_mode():
-        logging.info(f"SIMULATION MODE: Simulating configuration push for {device_id}.")
-        return {"status": "success", "message": "Configuration push simulated successfully."}
+        return {"status": "success", "message": "Configuration push simulated."}
 
     device_info = get_device_info(device_id)
     if not device_info:
@@ -308,36 +306,64 @@ def set_config(device_id: str, payload: ConfigPayload):
     
     config_commands = payload.config.splitlines()
     if not config_commands:
-        raise HTTPException(status_code=400, detail="Configuration payload cannot be empty.")
+        raise HTTPException(status_code=400, detail="Configuration payload empty.")
 
     try:
-        logging.info(f"Attempting to connect to {device_info['host']} to push config...")
         with ConnectHandler(**device_info) as net_connect:
             net_connect.enable()
             output = net_connect.send_config_set(config_commands)
-        logging.info(f"Successfully pushed config to {device_info['host']}. Output:\n{output}")
-        return {"status": "success", "message": "Configuration pushed successfully.", "output": output}
-    except NetmikoTimeoutException:
-        logging.error(f"Connection to {device_info['host']} timed out.")
-        raise HTTPException(status_code=504, detail="Connection timed out. Check IP address and network connectivity.")
-    except NetmikoAuthenticationException:
-        logging.error(f"Authentication failed for {device_info['host']}.")
-        raise HTTPException(status_code=401, detail="Authentication failed. Check credentials in config.ini.")
+        return {"status": "success", "output": output}
     except Exception as e:
-        logging.error(f"An unexpected error occurred while pushing config to {device_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")
+        logging.error(f"Error pushing config to {device_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to push config: {e}")
 
-# --- Main Execution ---
+@app.get("/api/sessions/{device_id}")
+def get_device_sessions(device_id: str):
+    with sessions_lock:
+        return ACTIVE_SESSIONS.get(device_id, [])
+
+@app.post("/api/sessions/{device_id}", status_code=204)
+def join_device_session(device_id: str, payload: SessionPayload):
+    with sessions_lock:
+        current_sessions = ACTIVE_SESSIONS.get(device_id, [])
+        
+        # CORRECTED LOGIC: Perform a robust "upsert" based on the unique sessionId.
+        # This correctly handles initial joins, rejoins, and multiple sessions from any user.
+        updated_sessions = [s for s in current_sessions if s['sessionId'] != payload.sessionId]
+        updated_sessions.append(payload.dict())
+        
+        ACTIVE_SESSIONS[device_id] = updated_sessions
+    
+    # Log the current state for easier debugging
+    user_list = [f"{s['username']}({s['sessionId'][-4:]})" for s in ACTIVE_SESSIONS.get(device_id, [])]
+    logging.info(f"User '{payload.username}' joined session for '{device_id}'. Current viewers: {user_list}")
+    return {}
+
+@app.delete("/api/sessions/{device_id}/{session_id}", status_code=204)
+def leave_device_session_endpoint(device_id: str, session_id: str):
+    with sessions_lock:
+        if device_id in ACTIVE_SESSIONS:
+            initial_count = len(ACTIVE_SESSIONS[device_id])
+            ACTIVE_SESSIONS[device_id] = [s for s in ACTIVE_SESSIONS[device_id] if s['sessionId'] != session_id]
+            
+            if initial_count > len(ACTIVE_SESSIONS.get(device_id, [])):
+                 logging.info(f"Session {session_id} left {device_id}.")
+
+            # Clean up the device key if no sessions are left
+            if not ACTIVE_SESSIONS[device_id]:
+                del ACTIVE_SESSIONS[device_id]
+                logging.info(f"All sessions for device '{device_id}' closed. Removing key.")
+    return {}
 
 if __name__ == "__main__":
     import uvicorn
-    # Initialize data file on startup
-    load_data()
+    with data_lock:
+        _load_data_nolock() # Initialize data file on startup
     try:
         host = config.get('server', 'host', fallback='127.0.0.1')
         port = config.getint('server', 'port', fallback=8000)
         logging.info(f"Starting ChainTrace Agent server at http://{host}:{port}")
         uvicorn.run(app, host=host, port=port)
     except (configparser.NoSectionError, configparser.NoOptionError) as e:
-        logging.error(f"Could not read server config from config.ini, using defaults. Error: {e}")
+        logging.error(f"Could not read server config, using defaults. Error: {e}")
         uvicorn.run(app, host="127.0.0.1", port=8000)
