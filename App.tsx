@@ -11,6 +11,11 @@ import Login from './components/Login';
 import ConfirmationModal from './components/ConfirmationModal';
 import { Toaster, toast } from 'react-hot-toast';
 import { leaveDeviceSessionAPI } from './utils/session';
+import { createApiUrl } from './utils/apiUtils';
+import { getAIFailureMessage } from './utils/errorUtils';
+import AIStatusBanner from './components/AIStatusBanner';
+import ApiKeyInstructionsModal from './components/ApiKeyInstructionsModal';
+import { AppError } from './utils/errors';
 
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -34,6 +39,8 @@ const App: React.FC = () => {
   const [currentUser, setCurrentUser] = React.useState<User | null>(null);
   const [rollbackTarget, setRollbackTarget] = React.useState<Block | null>(null);
   const [agentMode, setAgentMode] = React.useState<'live' | 'simulation'>('live');
+  const [aiStatus, setAiStatus] = React.useState({ isOk: true, message: '', code: '' });
+  const [isApiKeyModalOpen, setIsApiKeyModalOpen] = React.useState(false);
 
   const sessionId = React.useMemo(() => crypto.randomUUID(), []);
   
@@ -52,7 +59,8 @@ const App: React.FC = () => {
     if (!isSilent) setIsLoading(true);
 
     try {
-      const response = await fetch(`${settings.agentApiUrl}/api/data`);
+      const url = createApiUrl(settings.agentApiUrl, '/api/data');
+      const response = await fetch(url);
       if (!response.ok) {
         let detail = response.statusText;
         try {
@@ -85,6 +93,26 @@ const App: React.FC = () => {
     }
   }, [settings.agentApiUrl]);
 
+  React.useEffect(() => {
+    // Check for AI service availability on initial load.
+    try {
+      geminiService.checkKeyAvailability();
+    } catch (error) {
+      if (error instanceof AppError) {
+        setAiStatus({
+          isOk: false,
+          message: 'Google Gemini API 密钥未配置。',
+          code: error.code,
+        });
+      } else if (error instanceof Error) {
+          setAiStatus({
+          isOk: false,
+          message: error.message,
+          code: 'UNKNOWN_RUNTIME_ERROR',
+        });
+      }
+    }
+  }, []);
 
   React.useEffect(() => {
     // Load settings from localStorage (settings remain local to the browser)
@@ -127,7 +155,7 @@ const App: React.FC = () => {
     const checkAgentStatus = async () => {
         if (settings.agentApiUrl) {
             try {
-                const url = new URL('/api/health', settings.agentApiUrl).toString();
+                const url = createApiUrl(settings.agentApiUrl, '/api/health');
                 const response = await fetch(url);
                 if (!response.ok) {
                     setAgentMode('live'); // Default to live if health check fails but is reachable
@@ -175,7 +203,7 @@ const App: React.FC = () => {
   };
 
   const handleUpdateSettings = (newSettings: Partial<AppSettings>) => {
-    setSettings(prev => ({
+    setSettings((prev: AppSettings) => ({
         ...prev,
         ...newSettings,
         ai: {
@@ -198,7 +226,8 @@ const App: React.FC = () => {
     if (isConfirmed && settings.agentApiUrl) {
       setIsLoading(true);
       try {
-        const response = await fetch(`${settings.agentApiUrl}/api/reset`, { method: 'POST' });
+        const url = createApiUrl(settings.agentApiUrl, '/api/reset');
+        const response = await fetch(url, { method: 'POST' });
         if (!response.ok) throw new Error("代理重置失败");
         await fetchDataFromAgent(); // Refetch the now-empty data
         setSelectedDevice(null);
@@ -218,7 +247,8 @@ const App: React.FC = () => {
     }
     const toastId = toast.loading(`正在添加设备 ${newDeviceData.name}...`);
     try {
-        const response = await fetch(`${settings.agentApiUrl}/api/devices`, {
+        const url = createApiUrl(settings.agentApiUrl, '/api/devices');
+        const response = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(newDeviceData),
@@ -264,7 +294,8 @@ const App: React.FC = () => {
       );
 
       // Post the data payload to the agent, which will build and save the block
-      const response = await fetch(`${settings.agentApiUrl}/api/blockchains/${deviceId}`, {
+      const url = createApiUrl(settings.agentApiUrl!, `/api/blockchains/${deviceId}`);
+      const response = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
@@ -289,7 +320,7 @@ const App: React.FC = () => {
 
     } catch (error) {
       console.error("Error adding configuration:", error);
-      const errorMessage = error instanceof Error ? error.message : '发生未知错误。';
+      const errorMessage = getAIFailureMessage(error);
       toast.error(`添加配置失败: ${errorMessage}`, { id: toastId });
     } finally {
       setIsLoading(false);
@@ -314,6 +345,7 @@ const App: React.FC = () => {
   const executeRollback = async () => {
     if (!rollbackTarget || !currentUser || !settings.agentApiUrl) return;
     
+    // Capture the target block in a local variable to prevent race conditions.
     const blockToRollbackTo = rollbackTarget;
     const deviceId = blockToRollbackTo.data.deviceId;
     
@@ -332,8 +364,9 @@ const App: React.FC = () => {
         rollbackConfig, currentUser.username, currentChain,
         settings, 'rollback', changeDescription
       );
-
-      const response = await fetch(`${settings.agentApiUrl}/api/blockchains/${deviceId}`, {
+      
+      const url = createApiUrl(settings.agentApiUrl, `/api/blockchains/${deviceId}`);
+      const response = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
@@ -349,7 +382,7 @@ const App: React.FC = () => {
 
     } catch (error) {
       console.error("Error rolling back configuration:", error);
-      const errorMessage = error instanceof Error ? error.message : '未知错误。';
+      const errorMessage = getAIFailureMessage(error);
       toast.error(`回滚失败: ${errorMessage}`, { id: toastId });
     } finally {
       setIsLoading(false);
@@ -362,7 +395,8 @@ const App: React.FC = () => {
     if (!deviceToDelete) return;
 
     try {
-        const response = await fetch(`${settings.agentApiUrl}/api/devices/${deviceId}`, {
+        const url = createApiUrl(settings.agentApiUrl, `/api/devices/${deviceId}`);
+        const response = await fetch(url, {
             method: 'DELETE'
         });
         if (!response.ok) throw new Error("代理删除设备失败");
@@ -381,7 +415,7 @@ const App: React.FC = () => {
   if (!currentUser) {
     return (
         <div className="min-h-screen flex items-center justify-center">
-            <Toaster position="top-center" toastOptions={{ className: '!bg-slate-700 !text-white' }} />
+            <Toaster position="top-center" toastOptions={{ className: '!bg-zinc-800 !text-zinc-100' }} />
             <Login onLogin={handleLogin} mockUsers={MOCK_USERS} />
         </div>
     );
@@ -389,7 +423,14 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen">
-      <Toaster position="top-center" toastOptions={{ className: '!bg-slate-700 !text-white' }} />
+      <Toaster position="top-center" toastOptions={{ className: '!bg-zinc-800 !text-zinc-100' }} />
+      {!aiStatus.isOk && (
+        <AIStatusBanner
+          message={aiStatus.message}
+          errorCode={aiStatus.code}
+          onShowInstructions={() => setIsApiKeyModalOpen(true)}
+        />
+      )}
       <Header 
         currentUser={currentUser}
         onLogout={handleLogout}
@@ -444,14 +485,18 @@ const App: React.FC = () => {
           confirmText="确认回滚"
           confirmButtonVariant="warning"
         >
-          <p className="text-sm text-slate-300">
+          <p className="text-sm text-zinc-300">
             您确定要将设备 <strong className="font-bold text-white">{rollbackTarget.data.deviceId}</strong> 的配置回滚到 <strong className="font-bold text-white">版本 {rollbackTarget.data.version}</strong> 吗？
           </p>
-          <p className="mt-2 text-xs text-slate-400">
+          <p className="mt-2 text-xs text-zinc-400">
             此操作将在区块链上创建一个新的配置记录，而不是删除历史记录。
           </p>
         </ConfirmationModal>
       )}
+       <ApiKeyInstructionsModal
+        isOpen={isApiKeyModalOpen}
+        onClose={() => setIsApiKeyModalOpen(false)}
+      />
     </div>
   );
 };

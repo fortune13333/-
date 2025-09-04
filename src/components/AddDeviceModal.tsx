@@ -46,10 +46,10 @@ const AddDeviceModal: React.FC<AddDeviceModalProps> = ({ isOpen, onClose, onAddD
       onClick={onClose}
     >
       <div 
-        className="bg-indigo-900 rounded-lg shadow-2xl w-full max-w-md"
+        className="bg-zinc-900 rounded-lg shadow-2xl w-full max-w-md"
         onClick={e => e.stopPropagation()}
       >
-        <div className="p-4 border-b border-indigo-700 flex justify-between items-center">
+        <div className="p-4 border-b border-zinc-700 flex justify-between items-center">
           <h2 className="text-xl font-bold text-white">添加新设备</h2>
           <button onClick={onClose} className="text-zinc-400 hover:text-white text-3xl leading-none">&times;</button>
         </div>
@@ -63,7 +63,7 @@ const AddDeviceModal: React.FC<AddDeviceModalProps> = ({ isOpen, onClose, onAddD
                 id="deviceId"
                 value={id}
                 onChange={(e) => setId(e.target.value.toUpperCase())}
-                className="w-full bg-indigo-950 border border-indigo-700 rounded-md p-2 text-zinc-200 font-mono focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                className="w-full bg-zinc-950 border border-zinc-700 rounded-md p-2 text-zinc-200 font-mono focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                 placeholder="例如 RTR02-NYC"
                 required
               />
@@ -75,7 +75,7 @@ const AddDeviceModal: React.FC<AddDeviceModalProps> = ({ isOpen, onClose, onAddD
                 id="deviceName"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full bg-indigo-950 border border-indigo-700 rounded-md p-2 text-zinc-200 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                className="w-full bg-zinc-950 border border-zinc-700 rounded-md p-2 text-zinc-200 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                 placeholder="例如 Core Router 2 NYC"
                 required
               />
@@ -87,7 +87,7 @@ const AddDeviceModal: React.FC<AddDeviceModalProps> = ({ isOpen, onClose, onAddD
                 id="deviceIp"
                 value={ipAddress}
                 onChange={(e) => setIpAddress(e.target.value)}
-                className="w-full bg-indigo-950 border border-indigo-700 rounded-md p-2 text-zinc-200 font-mono focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                className="w-full bg-zinc-950 border border-zinc-700 rounded-md p-2 text-zinc-200 font-mono focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                  placeholder="例如 192.168.1.2"
                 required
               />
@@ -98,7 +98,7 @@ const AddDeviceModal: React.FC<AddDeviceModalProps> = ({ isOpen, onClose, onAddD
                 id="deviceType"
                 value={type}
                 onChange={(e) => setType(e.target.value as Device['type'])}
-                className="w-full bg-indigo-950 border border-indigo-700 rounded-md p-2 text-zinc-200 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                className="w-full bg-zinc-950 border border-zinc-700 rounded-md p-2 text-zinc-200 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
               >
                 <option value="Router">路由器 (Router)</option>
                 <option value="Switch">交换机 (Switch)</option>
@@ -107,11 +107,11 @@ const AddDeviceModal: React.FC<AddDeviceModalProps> = ({ isOpen, onClose, onAddD
             </div>
           </div>
 
-          <div className="p-4 border-t border-indigo-700 flex justify-end items-center gap-4">
+          <div className="p-4 border-t border-zinc-700 flex justify-end items-center gap-4">
               <button 
                   type="button"
                   onClick={onClose} 
-                  className="bg-indigo-700 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded-md transition-colors"
+                  className="bg-zinc-700 hover:bg-zinc-600 text-white font-bold py-2 px-4 rounded-md transition-colors"
               >
                   取消
               </button>

@@ -48,6 +48,7 @@ export interface User {
 }
 
 // For real-time collaboration feature
+// FIX: Add SessionUser interface for real-time collaboration feature.
 export interface SessionUser {
     username: string;
     sessionId: string;

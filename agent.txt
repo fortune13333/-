@@ -1,5 +1,5 @@
 #
-# ChainTrace Agent V3.4 - Collaboration Stability Final Fix
+# ChainTrace Agent V3.5 - Collaboration Stability Final Fix
 #
 import sys
 import configparser
@@ -135,7 +135,7 @@ class SessionPayload(BaseModel):
 app = FastAPI(
     title="ChainTrace Local Agent",
     description="Acts as a bridge between the ChainTrace UI and real network devices, and serves as the central data store for LAN collaboration.",
-    version="3.4.0",
+    version="3.5.0",
 )
 
 app.add_middleware(
@@ -326,15 +326,13 @@ def get_device_sessions(device_id: str):
 def join_device_session(device_id: str, payload: SessionPayload):
     with sessions_lock:
         current_sessions = ACTIVE_SESSIONS.get(device_id, [])
-        
-        # CORRECTED LOGIC: Perform a robust "upsert" based on the unique sessionId.
-        # This correctly handles initial joins, rejoins, and multiple sessions from any user.
+        # Robust "upsert" logic:
+        # Remove any existing session with the same session ID to handle refreshes.
         updated_sessions = [s for s in current_sessions if s['sessionId'] != payload.sessionId]
+        # Add the new/updated session.
         updated_sessions.append(payload.dict())
-        
         ACTIVE_SESSIONS[device_id] = updated_sessions
     
-    # Log the current state for easier debugging
     user_list = [f"{s['username']}({s['sessionId'][-4:]})" for s in ACTIVE_SESSIONS.get(device_id, [])]
     logging.info(f"User '{payload.username}' joined session for '{device_id}'. Current viewers: {user_list}")
     return {}
@@ -349,7 +347,6 @@ def leave_device_session_endpoint(device_id: str, session_id: str):
             if initial_count > len(ACTIVE_SESSIONS.get(device_id, [])):
                  logging.info(f"Session {session_id} left {device_id}.")
 
-            # Clean up the device key if no sessions are left
             if not ACTIVE_SESSIONS[device_id]:
                 del ACTIVE_SESSIONS[device_id]
                 logging.info(f"All sessions for device '{device_id}' closed. Removing key.")

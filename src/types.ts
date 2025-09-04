@@ -46,7 +46,6 @@ export interface User {
   role: 'admin' | 'operator';
 }
 
-// For real-time collaboration feature
 export interface SessionUser {
     username: string;
     sessionId: string;

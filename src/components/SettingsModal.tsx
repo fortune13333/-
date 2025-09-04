@@ -3,6 +3,7 @@ import { AppSettings, AIServiceSettings } from '../types';
 import Loader from './Loader';
 import { CheckCircleSolid, XCircleSolid, BrainIcon } from './AIIcons';
 import { toast } from 'react-hot-toast';
+import { createApiUrl } from '../utils/apiUtils';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -11,17 +12,29 @@ interface SettingsModalProps {
   onUpdateSettings: (newSettings: Partial<AppSettings>) => void;
 }
 
-type ActiveTab = 'analysis' | 'command' | 'check' | 'agent';
+type ActiveTab = 'agent' | 'analysis' | 'command' | 'check';
 
 const AISettingSection: React.FC<{
   title: string;
   description: string;
   settings: AIServiceSettings;
+  serviceKey: keyof AppSettings['ai'];
   onUpdate: (newAISettings: AIServiceSettings) => void;
-}> = ({ title, description, settings, onUpdate }) => {
+}> = ({ title, description, settings, serviceKey, onUpdate }) => {
+  
+  const envVarMap: Record<keyof AppSettings['ai'], string | undefined> = {
+    analysis: process.env.VITE_ANALYSIS_API_URL,
+    commandGeneration: process.env.VITE_COMMAND_GENERATION_API_URL,
+    configCheck: process.env.VITE_CONFIG_CHECK_API_URL,
+  };
+
+  const envApiUrl = envVarMap[serviceKey];
+  const isUrlFromEnv = !!envApiUrl;
+
+
   return (
     <div className="space-y-4">
-      <div className="bg-indigo-950/50 p-4 rounded-md">
+      <div className="bg-zinc-950/50 p-4 rounded-md">
         <div className="flex items-center justify-between">
           <label htmlFor={`${title}-toggle`} className="flex flex-col cursor-pointer pr-4">
             <span className="font-semibold text-zinc-200">{title}</span>
@@ -35,23 +48,29 @@ const AISettingSection: React.FC<{
               checked={settings.enabled}
               onChange={(e) => onUpdate({ ...settings, enabled: e.target.checked })}
             />
-            <div className="w-11 h-6 bg-indigo-700 rounded-full peer peer-focus:ring-4 peer-focus:ring-cyan-500/50 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-600"></div>
+            <div className="w-11 h-6 bg-zinc-700 rounded-full peer peer-focus:ring-4 peer-focus:ring-cyan-500/50 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-600"></div>
           </div>
         </div>
       </div>
       {settings.enabled && (
-        <div className="bg-indigo-950/50 p-4 rounded-md">
+        <div className="bg-zinc-950/50 p-4 rounded-md">
           <h4 className="font-semibold text-zinc-200 mb-2">自定义服务接口</h4>
           <p className="text-sm text-zinc-400 mb-3">
             （可选）输入一个自定义的API端点。如果留空，将默认使用 Google Gemini。
           </p>
           <input
             type="text"
-            placeholder="https://your-api.com/endpoint"
-            value={settings.apiUrl || ''}
+            placeholder={isUrlFromEnv ? '' : 'https://your-api.com/endpoint'}
+            value={isUrlFromEnv ? envApiUrl : settings.apiUrl || ''}
             onChange={(e) => onUpdate({ ...settings, apiUrl: e.target.value })}
-            className="w-full bg-indigo-950 border border-indigo-700 rounded-md p-2 text-zinc-200 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 text-sm"
+            className="w-full bg-zinc-950 border border-zinc-700 rounded-md p-2 text-zinc-200 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 text-sm disabled:bg-zinc-800/50 disabled:cursor-not-allowed"
+            disabled={isUrlFromEnv}
           />
+           {isUrlFromEnv && (
+            <p className="text-xs text-zinc-500 mt-2">
+              此 URL 已通过 <code>.env</code> 文件配置，无法在此处修改。
+            </p>
+          )}
         </div>
       )}
     </div>
@@ -74,7 +93,7 @@ const AgentSettingsSection: React.FC<{
         setTestStatus('testing');
         await new Promise(resolve => setTimeout(resolve, 500)); // For UX
         try {
-            const url = new URL('/api/health', settings.agentApiUrl).toString();
+            const url = createApiUrl(settings.agentApiUrl, '/api/health');
             const response = await fetch(url, { method: 'GET' });
             if (!response.ok) {
                 throw new Error(`网络响应错误: ${response.status} ${response.statusText}`);
@@ -94,7 +113,7 @@ const AgentSettingsSection: React.FC<{
     };
 
     return (
-        <div className="bg-indigo-950/50 p-4 rounded-md">
+        <div className="bg-zinc-950/50 p-4 rounded-md">
             <h4 className="font-semibold text-zinc-200 mb-2">本地代理接口</h4>
             <p className="text-sm text-zinc-400 mb-3">
                 输入本地代理的API地址以连接真实设备，实现配置的获取与推送。
@@ -108,13 +127,13 @@ const AgentSettingsSection: React.FC<{
                         onUpdateSettings({ agentApiUrl: e.target.value });
                         setTestStatus('idle');
                     }}
-                    className="flex-grow bg-indigo-950 border border-indigo-700 rounded-md p-2 text-zinc-200 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 text-sm"
+                    className="flex-grow bg-zinc-950 border border-zinc-700 rounded-md p-2 text-zinc-200 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 text-sm"
                 />
                 <button
                     type="button"
                     onClick={handleTestConnection}
                     disabled={testStatus === 'testing'}
-                    className="flex-shrink-0 bg-indigo-700 hover:bg-indigo-600 text-white font-bold py-2 px-3 rounded-md transition-colors text-sm disabled:opacity-50 disabled:cursor-wait"
+                    className="flex-shrink-0 bg-zinc-700 hover:bg-zinc-600 text-white font-bold py-2 px-3 rounded-md transition-colors text-sm disabled:opacity-50 disabled:cursor-wait"
                 >
                     测试连接
                 </button>
@@ -148,7 +167,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
   const TabButton: React.FC<{ tabId: ActiveTab; children: React.ReactNode }> = ({ tabId, children }) => (
     <button
       onClick={() => setActiveTab(tabId)}
-      className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${activeTab === tabId ? 'bg-cyan-600 text-white' : 'text-zinc-300 hover:bg-indigo-800'}`}
+      className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${activeTab === tabId ? 'bg-cyan-600 text-white' : 'text-zinc-300 hover:bg-zinc-800'}`}
     >
       {children}
     </button>
@@ -160,17 +179,17 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
       onClick={onClose}
     >
       <div 
-        className="bg-indigo-900 rounded-lg shadow-2xl w-full max-w-2xl"
+        className="bg-zinc-900 rounded-lg shadow-2xl w-full max-w-2xl"
         onClick={e => e.stopPropagation()}
       >
-        <div className="p-4 border-b border-indigo-700 flex justify-between items-center">
+        <div className="p-4 border-b border-zinc-700 flex justify-between items-center">
           <h2 className="text-xl font-bold text-white">应用设置</h2>
           <button onClick={onClose} className="text-zinc-400 hover:text-white text-3xl leading-none">&times;</button>
         </div>
         
-        <div className="flex border-b border-indigo-700 bg-indigo-950/30 p-2 space-x-2">
+        <div className="flex border-b border-zinc-700 bg-zinc-950/30 p-2 space-x-2">
              <TabButton tabId="agent">本地代理</TabButton>
-            <div className="flex items-center gap-2 border-l border-indigo-700 pl-2 ml-2">
+            <div className="flex items-center gap-2 border-l border-zinc-700 pl-2 ml-2">
                 <BrainIcon />
                 <span className="font-semibold text-zinc-300">AI 模块</span>
             </div>
@@ -187,6 +206,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
                     title="AI 智能分析"
                     description="提交新配置时，由 AI 分析变更内容、影响和安全风险。"
                     settings={settings.ai.analysis}
+                    serviceKey="analysis"
                     onUpdate={(newAISettings) => handleAIUpdate('analysis', newAISettings)}
                 />
             )}
@@ -195,6 +215,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
                     title="AI 命令生成"
                     description="在配置编辑区启用 AI 助手，通过自然语言生成配置命令。"
                     settings={settings.ai.commandGeneration}
+                    serviceKey="commandGeneration"
                     onUpdate={(newAISettings) => handleAIUpdate('commandGeneration', newAISettings)}
                 />
             )}
@@ -203,6 +224,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
                     title="AI 配置体检"
                     description="启用 AI 对当前配置进行全面的健康和安全审计。"
                     settings={settings.ai.configCheck}
+                    serviceKey="configCheck"
                     onUpdate={(newAISettings) => handleAIUpdate('configCheck', newAISettings)}
                 />
             )}
@@ -211,7 +233,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
             )}
         </div>
 
-        <div className="p-4 border-t border-indigo-700 text-right bg-indigo-900/80 backdrop-blur-sm">
+        <div className="p-4 border-t border-zinc-700 text-right bg-zinc-900/80 backdrop-blur-sm">
             <button 
                 onClick={onClose} 
                 className="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-4 rounded-md transition-colors"

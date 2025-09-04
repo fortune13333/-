@@ -18,11 +18,11 @@ const RollbackIcon: React.FC = () => (
 
 const HistoryItem: React.FC<HistoryItemProps> = ({ block, isLatest, currentUser, onSelectBlock, onRollback }) => {
   return (
-    <div className="bg-indigo-800/50 p-4 rounded-lg hover:bg-indigo-800 transition-colors duration-200">
+    <div className="bg-zinc-800/50 p-4 rounded-lg hover:bg-zinc-800 transition-colors duration-200">
         <div className="flex justify-between items-start">
             <div className="flex-1 pr-4">
                 <p className="font-bold text-white">
-                    版本 ${block.data.version}
+                    版本 {block.data.version}
                     {block.data.changeType === 'rollback' && <span className="text-xs text-yellow-400 bg-yellow-900/50 px-2 py-0.5 rounded-full ml-2">回滚点</span>}
                 </p>
                 <p className="text-sm text-zinc-300 mt-1">

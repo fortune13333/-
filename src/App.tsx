@@ -10,8 +10,12 @@ import AddDeviceModal from './components/AddDeviceModal';
 import Login from './components/Login';
 import ConfirmationModal from './components/ConfirmationModal';
 import { Toaster, toast } from 'react-hot-toast';
-import { leaveDeviceSessionAPI } from './utils/session';
+import { joinDeviceSessionAPI, leaveDeviceSessionAPI } from './utils/session';
 import { createApiUrl } from './utils/apiUtils';
+import { getAIFailureMessage } from './utils/errorUtils';
+import AIStatusBanner from './components/AIStatusBanner';
+import ApiKeyInstructionsModal from './components/ApiKeyInstructionsModal';
+import { AppError } from './utils/errors';
 
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -21,6 +25,18 @@ const DEFAULT_SETTINGS: AppSettings = {
     configCheck: { enabled: true, apiUrl: '' },
   },
   agentApiUrl: '',
+};
+
+// Helper to get or create a unique session ID per browser tab
+const getSessionId = (): string => {
+    const SESSION_KEY = 'chaintrace_sessionId';
+    const existingId = sessionStorage.getItem(SESSION_KEY);
+    if (existingId) {
+        return existingId;
+    }
+    const newId = crypto.randomUUID();
+    sessionStorage.setItem(SESSION_KEY, newId);
+    return newId;
 };
 
 
@@ -35,8 +51,10 @@ const App: React.FC = () => {
   const [currentUser, setCurrentUser] = React.useState<User | null>(null);
   const [rollbackTarget, setRollbackTarget] = React.useState<Block | null>(null);
   const [agentMode, setAgentMode] = React.useState<'live' | 'simulation'>('live');
+  const [aiStatus, setAiStatus] = React.useState({ isOk: true, message: '', code: '' });
+  const [isApiKeyModalOpen, setIsApiKeyModalOpen] = React.useState(false);
 
-  const sessionId = React.useMemo(() => crypto.randomUUID(), []);
+  const [sessionId] = React.useState(getSessionId());
   
   // Use a ref to track loading state to prevent re-fetching in polling
   const isLoadingRef = React.useRef(isLoading);
@@ -87,6 +105,26 @@ const App: React.FC = () => {
     }
   }, [settings.agentApiUrl]);
 
+  React.useEffect(() => {
+    // Check for AI service availability on initial load.
+    try {
+      geminiService.checkKeyAvailability();
+    } catch (error) {
+      if (error instanceof AppError) {
+        setAiStatus({
+          isOk: false,
+          message: 'Google Gemini API 密钥未配置。',
+          code: error.code,
+        });
+      } else if (error instanceof Error) {
+          setAiStatus({
+          isOk: false,
+          message: error.message,
+          code: 'UNKNOWN_RUNTIME_ERROR',
+        });
+      }
+    }
+  }, []);
 
   React.useEffect(() => {
     // Load settings from localStorage (settings remain local to the browser)
@@ -121,8 +159,6 @@ const App: React.FC = () => {
 
       // 3. Cleanup on component unmount or when dependencies change
       return () => clearInterval(intervalId);
-    } else if (!settings.agentApiUrl) {
-        setIsLoading(false);
     }
   }, [settings.agentApiUrl, currentUser, fetchDataFromAgent]);
   
@@ -131,7 +167,7 @@ const App: React.FC = () => {
     const checkAgentStatus = async () => {
         if (settings.agentApiUrl) {
             try {
-                const url = new URL('/api/health', settings.agentApiUrl).toString();
+                const url = createApiUrl(settings.agentApiUrl, '/api/health');
                 const response = await fetch(url);
                 if (!response.ok) {
                     setAgentMode('live'); // Default to live if health check fails but is reachable
@@ -152,6 +188,23 @@ const App: React.FC = () => {
     localStorage.setItem('chaintrace_settings', JSON.stringify(settings));
   }, [settings]);
 
+  // Centralized session management for in-app navigation
+  React.useEffect(() => {
+    if (selectedDevice && currentUser && settings.agentApiUrl) {
+      joinDeviceSessionAPI(selectedDevice.id, currentUser, sessionId, settings.agentApiUrl);
+    }
+    // This cleanup function will be called when `selectedDevice` changes 
+    // (e.g., user selects another device or goes back to dashboard),
+    // effectively leaving the session for the previous device.
+    return () => {
+      if (selectedDevice && settings.agentApiUrl) {
+        leaveDeviceSessionAPI(selectedDevice.id, sessionId, settings.agentApiUrl);
+      }
+    };
+  }, [selectedDevice, currentUser, sessionId, settings.agentApiUrl]);
+
+
+  // Failsafe session cleanup for when the user closes the browser tab or window
   React.useEffect(() => {
     const handleBeforeUnload = () => {
         if (selectedDevice && settings.agentApiUrl) {
@@ -179,7 +232,7 @@ const App: React.FC = () => {
   };
 
   const handleUpdateSettings = (newSettings: Partial<AppSettings>) => {
-    setSettings(prev => ({
+    setSettings((prev: AppSettings) => ({
         ...prev,
         ...newSettings,
         ai: {
@@ -198,12 +251,8 @@ const App: React.FC = () => {
   };
 
   const handleResetData = async () => {
-    if (!settings.agentApiUrl) {
-        toast.error('未配置代理地址。');
-        return;
-    }
     const isConfirmed = window.confirm("您确定要重置所有数据到初始状态吗？所有已添加的配置历史将被清除。");
-    if (isConfirmed) {
+    if (isConfirmed && settings.agentApiUrl) {
       setIsLoading(true);
       try {
         const url = createApiUrl(settings.agentApiUrl, '/api/reset');
@@ -237,8 +286,7 @@ const App: React.FC = () => {
             throw new Error(`设备 ID "${newDeviceData.id}" 已存在。`);
         }
         if (!response.ok) {
-            const errorData = await response.json().catch(() => ({'detail': '代理返回错误。'}));
-            throw new Error(errorData.detail || '代理返回错误。');
+            throw new Error('代理返回错误。');
         }
         const newDevice = await response.json();
         await fetchDataFromAgent(); // Refresh all data
@@ -260,10 +308,6 @@ const App: React.FC = () => {
       toast.error('配置不能为空。');
       return;
     }
-    if (!settings.agentApiUrl) {
-      toast.error('未配置代理地址。');
-      return;
-    }
     
     setIsLoading(true);
     const toastId = toast.loading(settings.ai.analysis.enabled ? '正在提交并请求 AI 分析...' : '正在提交...');
@@ -278,7 +322,8 @@ const App: React.FC = () => {
         'update'
       );
 
-      const url = createApiUrl(settings.agentApiUrl, `/api/blockchains/${deviceId}`);
+      // Post the data payload to the agent, which will build and save the block
+      const url = createApiUrl(settings.agentApiUrl!, `/api/blockchains/${deviceId}`);
       const response = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -304,7 +349,7 @@ const App: React.FC = () => {
 
     } catch (error) {
       console.error("Error adding configuration:", error);
-      const errorMessage = error instanceof Error ? error.message : '发生未知错误。';
+      const errorMessage = getAIFailureMessage(error);
       toast.error(`添加配置失败: ${errorMessage}`, { id: toastId });
     } finally {
       setIsLoading(false);
@@ -338,6 +383,7 @@ const App: React.FC = () => {
     const toastId = toast.loading(`正在回滚至版本 ${blockToRollbackTo.data.version}...`);
 
     try {
+      // The current chain must be fetched fresh from state before passing to service
       const currentChain = blockchains[deviceId] || []; 
       const lastVersion = currentChain.length > 0 ? currentChain[currentChain.length - 1].data.version : 0;
       const rollbackConfig = blockToRollbackTo.data.config;
@@ -347,7 +393,7 @@ const App: React.FC = () => {
         rollbackConfig, currentUser.username, currentChain,
         settings, 'rollback', changeDescription
       );
-
+      
       const url = createApiUrl(settings.agentApiUrl, `/api/blockchains/${deviceId}`);
       const response = await fetch(url, {
           method: 'POST',
@@ -365,7 +411,7 @@ const App: React.FC = () => {
 
     } catch (error) {
       console.error("Error rolling back configuration:", error);
-      const errorMessage = error instanceof Error ? error.message : '发生未知错误。';
+      const errorMessage = getAIFailureMessage(error);
       toast.error(`回滚失败: ${errorMessage}`, { id: toastId });
     } finally {
       setIsLoading(false);
@@ -398,7 +444,7 @@ const App: React.FC = () => {
   if (!currentUser) {
     return (
         <div className="min-h-screen flex items-center justify-center">
-            <Toaster position="top-center" toastOptions={{ className: '!bg-indigo-800 !text-zinc-100 !border !border-indigo-700 !shadow-lg' }} />
+            <Toaster position="top-center" toastOptions={{ className: '!bg-zinc-800 !text-zinc-100' }} />
             <Login onLogin={handleLogin} mockUsers={MOCK_USERS} />
         </div>
     );
@@ -406,7 +452,14 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen">
-      <Toaster position="top-center" toastOptions={{ className: '!bg-indigo-800 !text-zinc-100 !border !border-indigo-700 !shadow-lg' }} />
+      <Toaster position="top-center" toastOptions={{ className: '!bg-zinc-800 !text-zinc-100' }} />
+      {!aiStatus.isOk && (
+        <AIStatusBanner
+          message={aiStatus.message}
+          errorCode={aiStatus.code}
+          onShowInstructions={() => setIsApiKeyModalOpen(true)}
+        />
+      )}
       <Header 
         currentUser={currentUser}
         onLogout={handleLogout}
@@ -469,6 +522,10 @@ const App: React.FC = () => {
           </p>
         </ConfirmationModal>
       )}
+       <ApiKeyInstructionsModal
+        isOpen={isApiKeyModalOpen}
+        onClose={() => setIsApiKeyModalOpen(false)}
+      />
     </div>
   );
 };

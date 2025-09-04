@@ -1,9 +1,43 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { Block, BlockData, AppSettings, Device } from '../types';
+import { AppError } from "../utils/errors";
 
-// Initialize the Google AI client
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+// --- Singleton Initializer for the Google AI Client ---
+let aiInstance: GoogleGenAI | null = null;
+
+// FIX: Add checkKeyAvailability function to verify API key existence on app startup.
+/**
+ * Checks if the API key is available in the environment.
+ * Throws a specific AppError if the key is missing.
+ */
+const checkKeyAvailability = () => {
+    const apiKey = process.env.API_KEY;
+    if (!apiKey) {
+        throw new AppError(
+            "Google Gemini API key is not configured.",
+            'ERR_GEMINI_API_KEY_MISSING'
+        );
+    }
+};
+
+/**
+ * Lazily initializes and returns a singleton instance of the GoogleGenAI client.
+ * This defers the API key check until an AI function is called, preventing a startup crash.
+ * @throws {Error} If the API_KEY environment variable is not configured.
+ */
+const getAiClient = (): GoogleGenAI => {
+    if (aiInstance) {
+        return aiInstance;
+    }
+    const apiKey = process.env.API_KEY;
+    if (!apiKey) {
+        // This error will be caught by the calling function and handled gracefully.
+        throw new Error("Google Gemini API key is not configured. Please set it up in your environment configuration.");
+    }
+    aiInstance = new GoogleGenAI({ apiKey });
+    return aiInstance;
+};
+
 
 // Define the expected JSON response structure for the Gemini model
 const responseSchema = {
@@ -137,6 +171,8 @@ const analyzeConfigurationChange = async (
       `;
 
       try {
+        // FIX: Lazily initialize AI client to prevent startup crash if API key is missing.
+        const ai = getAiClient();
         const response = await ai.models.generateContent({
           model: "gemini-2.5-flash",
           contents: prompt,
@@ -146,7 +182,12 @@ const analyzeConfigurationChange = async (
           },
         });
         
-        analysisResult = JSON.parse(response.text.trim());
+        // FIX: Add a check for an empty response to prevent JSON parsing errors.
+        const text = response.text;
+        if (!text) {
+          throw new Error("AI model returned an empty or invalid response.");
+        }
+        analysisResult = JSON.parse(text.trim());
         aiSuccess = true;
 
       } catch (error) {
@@ -240,11 +281,14 @@ const generateConfigFromPrompt = async (
     `;
 
     try {
+        // FIX: Lazily initialize AI client to prevent startup crash if API key is missing.
+        const ai = getAiClient();
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash",
             contents: prompt,
         });
-        return response.text.trim();
+        // FIX: Safely access response.text to avoid errors if it is null or undefined.
+        return response.text?.trim() ?? '';
     } catch (error) {
         console.error("Gemini config generation failed:", error);
         const errorMessage = error instanceof Error ? error.message : "An unknown error occurred with the AI model.";
@@ -307,11 +351,14 @@ const checkConfiguration = async (
     `;
 
     try {
+        // FIX: Lazily initialize AI client to prevent startup crash if API key is missing.
+        const ai = getAiClient();
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash",
             contents: prompt,
         });
-        return response.text.trim();
+        // FIX: Safely access response.text to avoid errors if it is null or undefined.
+        return response.text?.trim() ?? '';
     } catch (error) {
         console.error("Gemini config check failed:", error);
         const errorMessage = error instanceof Error ? error.message : "An unknown error occurred with the AI model.";
@@ -320,6 +367,7 @@ const checkConfiguration = async (
 };
 
 export const geminiService = {
+  checkKeyAvailability,
   analyzeConfigurationChange,
   generateConfigFromPrompt,
   checkConfiguration,

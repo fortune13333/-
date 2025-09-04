@@ -8,8 +8,9 @@ import { verifyChain } from '../utils/crypto';
 import { toast } from 'react-hot-toast';
 import { DownloadIcon, PlusIcon, SparklesIcon, BrainIcon } from './AIIcons';
 import { geminiService } from '../services/geminiService';
-import { joinDeviceSessionAPI, leaveDeviceSessionAPI, getActiveSessionsAPI } from '../utils/session';
+import { getActiveSessionsAPI } from '../utils/session';
 import { createApiUrl } from '../utils/apiUtils';
+import { getAIFailureMessage } from '../utils/errorUtils';
 
 interface DeviceDetailsProps {
   device: Device;
@@ -71,28 +72,35 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
 
   const [otherViewingUsers, setOtherViewingUsers] = useState<SessionUser[]>([]);
 
-  // Effect for Centralized, API-based session management
+  // Effect for polling other active sessions
   useEffect(() => {
     if (!settings.agentApiUrl) {
         setOtherViewingUsers([]);
         return; // Collaboration feature is disabled if no agent is configured
     }
 
-    // Join the session for the current device
-    joinDeviceSessionAPI(device.id, currentUser, sessionId, settings.agentApiUrl);
+    const fetchViewers = async () => {
+        try {
+            const viewers = await getActiveSessionsAPI(device.id, settings.agentApiUrl!);
+            // Filter out the current user's session to only show others
+            setOtherViewingUsers(viewers.filter(u => u.sessionId !== sessionId));
+        } catch (error) {
+            console.error("Failed to poll for active sessions:", error);
+            setOtherViewingUsers([]); // Clear viewers on error
+        }
+    };
 
-    // Set up polling to get other viewers
-    const intervalId = setInterval(async () => {
-        const viewers = await getActiveSessionsAPI(device.id, settings.agentApiUrl!);
-        setOtherViewingUsers(viewers.filter(u => u.sessionId !== sessionId));
-    }, 3000); // Poll every 3 seconds
+    // Initial fetch to show viewers immediately on load
+    fetchViewers();
 
-    // Cleanup function: leave the session and clear the interval
+    // Set up polling to get live updates on who is viewing
+    const intervalId = setInterval(fetchViewers, 3000); // Poll every 3 seconds
+
+    // Cleanup function: clear the interval when the component unmounts or dependencies change
     return () => {
       clearInterval(intervalId);
-      leaveDeviceSessionAPI(device.id, sessionId, settings.agentApiUrl!);
     };
-  }, [device.id, currentUser, sessionId, settings.agentApiUrl]);
+  }, [device.id, sessionId, settings.agentApiUrl]);
   
 
   useEffect(() => {
@@ -170,7 +178,10 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
         }
     }
 
-    // This part is executed for simulation mode or after a successful push in live mode.
+    // This part is executed for:
+    // 1. Simulation mode (the 'if' block above is skipped).
+    // 2. No agent configured (settings.agentApiUrl is falsy).
+    // 3. Live mode after a successful push to the device.
     onAddConfiguration(device.id, newConfig);
   };
   
@@ -208,6 +219,7 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
       try {
           const generatedCommands = await geminiService.generateConfigFromPrompt(aiPrompt, device.type, newConfig, settings);
           if (generatedCommands) {
+              // Append the new commands to the existing config
               setNewConfig(prev => `${prev.trim()}\n${generatedCommands}`.trim());
               setAiPrompt(''); // Clear the input field
               toast.success('AI 命令已生成并追加！', { id: toastId });
@@ -215,7 +227,7 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
               toast.error('AI 未能生成命令，请检查您的输入或稍后再试。', { id: toastId });
           }
       } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : '发生未知错误。';
+          const errorMessage = getAIFailureMessage(error);
           toast.error(`生成失败: ${errorMessage}`, { id: toastId });
       } finally {
           setIsGenerating(false);
@@ -235,7 +247,7 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
       setConfigCheckResult(report);
       toast.success('配置体检完成！', { id: toastId });
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : '发生未知错误。';
+      const errorMessage = getAIFailureMessage(error);
       toast.error(`体检失败: ${errorMessage}`, { id: toastId });
     } finally {
       setIsCheckingConfig(false);
@@ -261,13 +273,13 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Left Side: History */}
-        <div className="bg-indigo-900 p-6 rounded-lg shadow-xl">
+        <div className="bg-zinc-900 p-6 rounded-lg shadow-xl">
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-2xl font-bold text-white">配置历史</h3>
             <button 
               onClick={handleVerifyChain}
               disabled={isVerifying || isLoading}
-              className="flex items-center gap-2 bg-indigo-800 hover:bg-indigo-700 disabled:bg-indigo-950 disabled:text-zinc-500 disabled:cursor-not-allowed text-white font-bold py-2 px-3 rounded-md transition-colors text-sm"
+              className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-950 disabled:text-zinc-500 disabled:cursor-not-allowed text-white font-bold py-2 px-3 rounded-md transition-colors text-sm"
             >
               {isVerifying ? <Loader/> : <ShieldCheckIcon/>}
               <span>验证完整性</span>
@@ -288,7 +300,7 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
                             onSelectDevice(newDevice);
                         }
                     }}
-                    className="flex-grow bg-indigo-800 border border-indigo-700 rounded-md p-2 text-white font-mono focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                    className="flex-grow bg-zinc-800 border border-zinc-700 rounded-md p-2 text-white font-mono focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                 >
                     {allDevices.map(d => (
                         <option key={d.id} value={d.id}>
@@ -298,7 +310,7 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
                 </select>
                 <button
                     onClick={onOpenAddDeviceModal}
-                    className="flex-shrink-0 bg-indigo-800 hover:bg-cyan-600/50 text-zinc-300 hover:text-cyan-300 font-medium p-2 rounded-md transition-colors duration-200"
+                    className="flex-shrink-0 bg-zinc-800 hover:bg-cyan-600/50 text-zinc-300 hover:text-cyan-300 font-medium p-2 rounded-md transition-colors duration-200"
                     aria-label="添加新设备"
                     title="添加新设备"
                 >
@@ -327,7 +339,7 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
         </div>
 
         {/* Right Side: Add New Config */}
-        <div className="bg-indigo-900 p-6 rounded-lg shadow-xl flex flex-col">
+        <div className="bg-zinc-900 p-6 rounded-lg shadow-xl flex flex-col">
           <CollaborationWarning users={otherViewingUsers} />
           <div>
             <h3 className="text-2xl font-bold text-white mb-4">提交新配置</h3>
@@ -343,7 +355,7 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
                             type="button"
                             onClick={handleConfigCheck}
                             disabled={isCheckingConfig || isLoading}
-                            className="flex items-center gap-2 text-xs bg-indigo-800 hover:bg-indigo-700 disabled:bg-indigo-950 disabled:text-zinc-500 disabled:cursor-not-allowed text-white font-bold py-1 px-3 rounded-md transition-colors"
+                            className="flex items-center gap-2 text-xs bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-950 disabled:text-zinc-500 disabled:cursor-not-allowed text-white font-bold py-1 px-3 rounded-md transition-colors"
                         >
                             {isCheckingConfig ? <Loader /> : <BrainIcon />}
                             <span>AI 配置体检</span>
@@ -354,7 +366,7 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
                             type="button"
                             onClick={handleFetchFromDevice}
                             disabled={isFetchingConfig || isLoading}
-                            className="flex items-center gap-2 text-xs bg-indigo-800 hover:bg-indigo-700 disabled:bg-indigo-950 disabled:text-zinc-500 disabled:cursor-not-allowed text-white font-bold py-1 px-3 rounded-md transition-colors"
+                            className="flex items-center gap-2 text-xs bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-950 disabled:text-zinc-500 disabled:cursor-not-allowed text-white font-bold py-1 px-3 rounded-md transition-colors"
                         >
                             {isFetchingConfig ? <Loader /> : <DownloadIcon />}
                             <span>从设备获取</span>
@@ -366,7 +378,7 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
                 id="config"
                 value={newConfig}
                 onChange={(e) => setNewConfig(e.target.value)}
-                className="w-full flex-grow bg-indigo-950 border border-indigo-700 rounded-md p-2 font-mono text-sm text-zinc-200 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                className="w-full flex-grow bg-zinc-950 border border-zinc-700 rounded-md p-2 font-mono text-sm text-zinc-200 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                 placeholder="在此处输入完整的设备配置..."
               />
             </div>
@@ -376,7 +388,7 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
             )}
 
             {configCheckResult && (
-                <div className="mb-4 p-3 rounded-md bg-indigo-950 border border-indigo-700 max-h-40 overflow-y-auto">
+                <div className="mb-4 p-3 rounded-md bg-zinc-950 border border-zinc-700 max-h-40 overflow-y-auto">
                     <h4 className="flex items-center gap-2 font-semibold text-zinc-300 mb-2 text-sm">
                         <BrainIcon /> AI 配置体检报告
                     </h4>
@@ -385,7 +397,7 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
             )}
             
             {settings.ai.commandGeneration.enabled && (
-                <div className="mb-6 bg-indigo-950/50 p-3 rounded-md">
+                <div className="mb-6 bg-zinc-950/50 p-3 rounded-md">
                     <label htmlFor="ai-prompt" className="flex items-center gap-2 text-sm font-medium text-zinc-300 mb-2">
                         <SparklesIcon className="h-5 w-5 text-cyan-400" />
                         <span>AI 助手</span>
@@ -397,7 +409,7 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
                             value={aiPrompt}
                             onChange={(e) => setAiPrompt(e.target.value)}
                             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleGenerateConfig(); }}}
-                            className="flex-grow bg-indigo-800 border border-indigo-700 rounded-md p-2 text-zinc-200 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 text-sm"
+                            className="flex-grow bg-zinc-800 border border-zinc-700 rounded-md p-2 text-zinc-200 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 text-sm"
                             placeholder="例如：为 VLAN 10 添加端口 G0/1"
                             disabled={isGenerating}
                         />
@@ -405,7 +417,7 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
                             type="button"
                             onClick={handleGenerateConfig}
                             disabled={isGenerating || isLoading}
-                            className="flex-shrink-0 flex items-center justify-center gap-2 w-32 bg-indigo-700 hover:bg-cyan-600/50 text-white font-bold py-2 px-3 rounded-md transition-colors text-sm disabled:opacity-50 disabled:cursor-wait"
+                            className="flex-shrink-0 flex items-center justify-center gap-2 w-32 bg-zinc-800 hover:bg-cyan-600/50 text-white font-bold py-2 px-3 rounded-md transition-colors text-sm disabled:opacity-50 disabled:cursor-wait"
                         >
                            {isGenerating ? <Loader/> : '生成命令'}
                         </button>
@@ -416,7 +428,7 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
             <button
               type="submit"
               disabled={isLoading || isVerifying || isFetchingConfig || isGenerating || isCheckingConfig}
-              className="w-full flex justify-center items-center gap-2 bg-cyan-600 hover:bg-cyan-700 disabled:bg-indigo-600 text-white font-bold py-2 px-4 rounded-md transition-colors mt-auto"
+              className="w-full flex justify-center items-center gap-2 bg-cyan-600 hover:bg-cyan-700 disabled:bg-zinc-600 text-white font-bold py-2 px-4 rounded-md transition-colors mt-auto"
             >
               {isLoading ? <Loader /> : submitButtonText}
             </button>
@@ -443,5 +455,4 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
     </div>
   );
 };
-
 export default DeviceDetails;

@@ -82,12 +82,12 @@ const SideBySideDiffView: React.FC<{ oldConfig: string; newConfig: string; block
     let rightLineNum = 1;
 
     return (
-        <div className="bg-indigo-950 rounded-md text-xs font-mono overflow-auto max-h-[50vh] border border-indigo-700">
+        <div className="bg-zinc-950 rounded-md text-xs font-mono overflow-auto max-h-[50vh] border border-zinc-700">
             <table className="w-full border-collapse">
-                <thead className="sticky top-0 bg-indigo-950/80 backdrop-blur-sm z-10">
+                <thead className="sticky top-0 bg-zinc-950/80 backdrop-blur-sm z-10">
                     <tr>
                         <th className="w-10 p-2 text-zinc-500 text-right font-normal select-none">-</th>
-                        <th className="p-2 text-left font-semibold text-zinc-300 border-r border-indigo-700">
+                        <th className="p-2 text-left font-semibold text-zinc-300 border-r border-zinc-700">
                             原始配置 {block.index > 0 ? `(版本 ${block.data.version - 1})` : '(创世区块)'}
                         </th>
                         <th className="w-10 p-2 text-zinc-500 text-right font-normal select-none">+</th>
@@ -99,7 +99,7 @@ const SideBySideDiffView: React.FC<{ oldConfig: string; newConfig: string; block
                 <tbody>
                     {diff.map((item, index) => {
                         const lineType = item.type;
-                        let rowClass = 'hover:bg-indigo-800/50';
+                        let rowClass = 'hover:bg-zinc-800/50';
                         let leftCellClass = '';
                         let rightCellClass = '';
 
@@ -119,7 +119,7 @@ const SideBySideDiffView: React.FC<{ oldConfig: string; newConfig: string; block
                                 <td className={`p-1 w-10 text-right text-zinc-500 select-none ${leftCellClass}`}>
                                     {currentLeftNum}
                                 </td>
-                                <td className={`p-1 pr-4 whitespace-pre-wrap break-all border-r border-indigo-700 ${leftCellClass}`}>
+                                <td className={`p-1 pr-4 whitespace-pre-wrap break-all border-r border-zinc-700 ${leftCellClass}`}>
                                     <span className={lineType === 'removed' ? 'text-red-300' : 'text-zinc-300'}>{item.leftLine ?? ' '}</span>
                                 </td>
                                 <td className={`p-1 w-10 text-right text-zinc-500 select-none ${rightCellClass}`}>
@@ -160,11 +160,11 @@ const BlockDetailsModal: React.FC<BlockDetailsModalProps> = ({ block, prevConfig
       onClick={onClose}
     >
       <div 
-        className="bg-indigo-900 rounded-lg shadow-2xl w-full max-w-7xl max-h-[90vh] flex flex-col"
+        className="bg-zinc-900 rounded-lg shadow-2xl w-full max-w-7xl max-h-[90vh] flex flex-col"
         onClick={e => e.stopPropagation()}
       >
-        <div className="flex-shrink-0 bg-indigo-900/80 backdrop-blur-sm p-4 border-b border-indigo-700 flex justify-between items-center z-10">
-          <h2 className="text-xl font-bold text-white">区块 #{block.index} - 版本 ${block.data.version}</h2>
+        <div className="flex-shrink-0 bg-zinc-900/80 backdrop-blur-sm p-4 border-b border-zinc-700 flex justify-between items-center z-10">
+          <h2 className="text-xl font-bold text-white">区块 #{block.index} - 版本 {block.data.version}</h2>
           <button onClick={onClose} className="text-zinc-400 hover:text-white text-3xl leading-none">&times;</button>
         </div>
         
@@ -172,17 +172,17 @@ const BlockDetailsModal: React.FC<BlockDetailsModalProps> = ({ block, prevConfig
           {/* AI Analysis Section */}
           <div>
             <h3 className="text-lg font-semibold text-zinc-300 mb-3 flex items-center gap-2"><BrainIcon /> AI 智能分析</h3>
-            <div className="bg-indigo-950/50 p-4 rounded-md space-y-4 text-sm">
+            <div className="bg-zinc-950/50 p-4 rounded-md space-y-4 text-sm">
               <div>
                 <h4 className="font-semibold text-zinc-400 mb-1">变更摘要</h4>
                 <p className="text-zinc-200">{block.data.summary}</p>
               </div>
-               <hr className="border-indigo-700"/>
+               <hr className="border-zinc-700"/>
               <div>
                 <h4 className="font-semibold text-zinc-400 mb-1">详细分析</h4>
                 <p className="text-zinc-200 whitespace-pre-wrap">{block.data.analysis}</p>
               </div>
-               <hr className="border-indigo-700"/>
+               <hr className="border-zinc-700"/>
               <div>
                 <h4 className="font-semibold text-zinc-400 mb-1">安全评估</h4>
                 <SecurityAssessment risks={block.data.security_risks} />
@@ -200,15 +200,15 @@ const BlockDetailsModal: React.FC<BlockDetailsModalProps> = ({ block, prevConfig
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
             <div>
               <h4 className="font-semibold text-zinc-300 mb-2">区块元数据</h4>
-              <ul className="space-y-2 bg-indigo-950/50 p-3 rounded-md">
+              <ul className="space-y-2 bg-zinc-950/50 p-3 rounded-md">
                 <li className="flex justify-between"><span className="text-zinc-400">时间戳:</span> <span className="text-zinc-200">{new Date(block.timestamp).toLocaleString()}</span></li>
-                <li className="flex justify-between"><span className="text-zinc-400">操作员:</span> <span className="font-mono bg-indigo-700 px-2 py-0.5 rounded">{block.data.operator}</span></li>
-                <li className="flex justify-between"><span className="text-zinc-400">变更类型:</span> <span className="font-mono bg-indigo-700 px-2 py-0.5 rounded">{block.data.changeType}</span></li>
+                <li className="flex justify-between"><span className="text-zinc-400">操作员:</span> <span className="font-mono bg-zinc-700 px-2 py-0.5 rounded">{block.data.operator}</span></li>
+                <li className="flex justify-between"><span className="text-zinc-400">变更类型:</span> <span className="font-mono bg-zinc-700 px-2 py-0.5 rounded">{block.data.changeType}</span></li>
               </ul>
             </div>
             <div>
               <h4 className="font-semibold text-zinc-300 mb-2">链哈希值</h4>
-              <ul className="space-y-2 font-mono text-xs bg-indigo-950/50 p-3 rounded-md">
+              <ul className="space-y-2 font-mono text-xs bg-zinc-950/50 p-3 rounded-md">
                 <li><span className="text-zinc-400">当前哈希:</span> <span className="text-emerald-400 block break-all">{block.hash}</span></li>
                 <li className="mt-2"><span className="text-zinc-400">前一哈希:</span> <span className="text-yellow-400 block break-all">{block.prev_hash}</span></li>
               </ul>

@@ -35,7 +35,7 @@ const ChainVisualizer: React.FC<{ results: VerificationResult[] }> = ({ results 
         switch(status) {
             case 'success': return { bg: 'bg-emerald-500/20', border: 'border-emerald-500', text: 'text-emerald-300' };
             case 'failure': return { bg: 'bg-red-500/20', border: 'border-red-500', text: 'text-red-300' };
-            default: return { bg: 'bg-indigo-800', border: 'border-indigo-700', text: 'text-zinc-300' };
+            default: return { bg: 'bg-zinc-800', border: 'border-zinc-700', text: 'text-zinc-300' };
         }
     }
 
@@ -83,10 +83,10 @@ const VerificationModal: React.FC<VerificationModalProps> = ({ results, chain, o
       onClick={onClose}
     >
       <div 
-        className="bg-indigo-900 rounded-lg shadow-2xl w-full max-w-4xl"
+        className="bg-zinc-900 rounded-lg shadow-2xl w-full max-w-4xl"
         onClick={e => e.stopPropagation()}
       >
-        <div className="p-4 border-b border-indigo-700 flex justify-between items-center">
+        <div className="p-4 border-b border-zinc-700 flex justify-between items-center">
           <h2 className="text-xl font-bold text-white">链完整性验证</h2>
           <button onClick={onClose} className="text-zinc-400 hover:text-white text-3xl leading-none" disabled={isVerifying}>&times;</button>
         </div>
@@ -99,7 +99,7 @@ const VerificationModal: React.FC<VerificationModalProps> = ({ results, chain, o
                     const isExpanded = expandedIndex === result.index;
 
                     return (
-                        <div key={result.index} className={`p-3 rounded-md transition-all duration-300 ${result.status === 'failure' ? 'bg-red-500/10 border border-red-500/30' : 'bg-indigo-800/50'}`}>
+                        <div key={result.index} className={`p-3 rounded-md transition-all duration-300 ${result.status === 'failure' ? 'bg-red-500/10 border border-red-500/30' : 'bg-zinc-800/50'}`}>
                             <div className="flex items-center justify-between">
                                 <span className="font-semibold text-zinc-200">区块 #{result.index}</span>
                                 <div className="flex items-center gap-4">
@@ -116,9 +116,9 @@ const VerificationModal: React.FC<VerificationModalProps> = ({ results, chain, o
                             </div>
                             
                             {isExpanded && block && (
-                                <div className="mt-2 pt-2 border-t border-indigo-700/50">
+                                <div className="mt-2 pt-2 border-t border-zinc-700/50">
                                     <h4 className="text-sm font-semibold text-zinc-300 mb-1">配置内容:</h4>
-                                    <pre className="bg-indigo-950 p-2 rounded-md font-mono text-xs text-zinc-400 max-h-40 overflow-auto">
+                                    <pre className="bg-zinc-950 p-2 rounded-md font-mono text-xs text-zinc-400 max-h-40 overflow-auto">
                                         <code>{block.data.config}</code>
                                     </pre>
                                 </div>
@@ -137,7 +137,7 @@ const VerificationModal: React.FC<VerificationModalProps> = ({ results, chain, o
             </div>
         </div>
 
-        <div className="p-4 border-t border-indigo-700">
+        <div className="p-4 border-t border-zinc-700">
             <div className="flex justify-between items-center">
                 <div>
                      {finalStatus === 'in_progress' && <div className="flex items-center gap-2 text-zinc-300"><Loader/><span>正在验证... ({verifiedBlocks}/{totalBlocks})</span></div>}
@@ -147,7 +147,7 @@ const VerificationModal: React.FC<VerificationModalProps> = ({ results, chain, o
                 <button 
                     onClick={onClose} 
                     disabled={isVerifying}
-                    className="bg-cyan-600 hover:bg-cyan-700 disabled:bg-indigo-600 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-md transition-colors"
+                    className="bg-cyan-600 hover:bg-cyan-700 disabled:bg-zinc-600 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-md transition-colors"
                 >
                     关闭
                 </button>

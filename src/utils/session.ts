@@ -52,12 +52,14 @@ export const getActiveSessionsAPI = async (deviceId: string, agentApiUrl: string
     if (!agentApiUrl) return [];
     try {
         const url = createApiUrl(agentApiUrl, `/api/sessions/${deviceId}`);
-        const response = await fetch(url);
+        const response = await fetch(url, { cache: 'no-cache' });
         if (!response.ok) return [];
         return await response.json();
     } catch (e) {
-        // This can happen if the agent is down, it's a normal state.
-        // console.error('Failed to get sessions via API', e);
+        // This can happen if the agent is down. This is a normal state, so we don't need to log an error.
+        // It prevents collaboration hints from appearing, which is the desired behavior.
+        // Added a log for easier debugging in case of unexpected network errors.
+        console.error('Failed to get active sessions via API. This is expected if the agent is offline.', e);
         return [];
     }
 };

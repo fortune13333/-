@@ -53,12 +53,12 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
       aria-labelledby="confirmation-dialog-title"
     >
       <div
-        className="bg-indigo-900 rounded-lg shadow-2xl w-full max-w-md border border-indigo-700"
+        className="bg-zinc-900 rounded-lg shadow-2xl w-full max-w-md border border-zinc-700"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="p-6">
           <div className="flex items-start gap-4">
-            <div className="flex-shrink-0 h-10 w-10 flex items-center justify-center rounded-full bg-indigo-800">
+            <div className="flex-shrink-0 h-10 w-10 flex items-center justify-center rounded-full bg-zinc-800">
                 <WarningIcon />
             </div>
             <div className="flex-1">
@@ -70,11 +70,11 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
           </div>
         </div>
 
-        <div className="p-4 bg-indigo-950/50 border-t border-indigo-700 flex justify-end items-center gap-4 rounded-b-lg">
+        <div className="p-4 bg-zinc-950/50 border-t border-zinc-700 flex justify-end items-center gap-4 rounded-b-lg">
           <button
             type="button"
             onClick={onClose}
-            className="bg-indigo-700 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded-md transition-colors"
+            className="bg-zinc-700 hover:bg-zinc-600 text-white font-bold py-2 px-4 rounded-md transition-colors"
           >
             {cancelText}
           </button>

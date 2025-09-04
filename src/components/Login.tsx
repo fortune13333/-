@@ -33,7 +33,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, mockUsers }) => {
   };
 
   return (
-    <div className="w-full max-w-md bg-indigo-900 border border-indigo-800 p-8 rounded-lg shadow-2xl">
+    <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 p-8 rounded-lg shadow-2xl">
       <div className="text-center mb-8">
         <div className="flex items-center justify-center gap-4 mb-4">
             <ChainIcon />
@@ -57,7 +57,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, mockUsers }) => {
             id="username"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            className="w-full bg-indigo-950 border border-indigo-700 rounded-md p-3 text-zinc-200 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+            className="w-full bg-zinc-950 border border-zinc-700 rounded-md p-3 text-zinc-200 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
             required
             autoComplete="username"
           />
@@ -74,7 +74,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, mockUsers }) => {
             id="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full bg-indigo-950 border border-indigo-700 rounded-md p-3 text-zinc-200 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+            className="w-full bg-zinc-950 border border-zinc-700 rounded-md p-3 text-zinc-200 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
             required
             autoComplete="current-password"
           />
@@ -88,7 +88,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, mockUsers }) => {
           </button>
         </div>
       </form>
-       <div className="mt-6 text-center text-xs text-zinc-500 bg-indigo-950/50 p-3 rounded-md">
+       <div className="mt-6 text-center text-xs text-zinc-500 bg-zinc-950/50 p-3 rounded-md">
             <p className="font-semibold mb-2">测试账户:</p>
             <p>管理员: admin / admin</p>
             <p>操作员: operator1 / password</p>

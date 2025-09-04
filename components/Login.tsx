@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { User } from '../types';
 import { toast } from 'react-hot-toast';
@@ -34,22 +33,22 @@ const Login: React.FC<LoginProps> = ({ onLogin, mockUsers }) => {
   };
 
   return (
-    <div className="w-full max-w-md bg-slate-800 p-8 rounded-lg shadow-2xl">
+    <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 p-8 rounded-lg shadow-2xl">
       <div className="text-center mb-8">
         <div className="flex items-center justify-center gap-4 mb-4">
             <ChainIcon />
             <div>
                 <h1 className="text-3xl font-bold text-white tracking-tight">链踪</h1>
-                <p className="text-md text-slate-400">网络配置守护者</p>
+                <p className="text-md text-zinc-400">网络配置守护者</p>
             </div>
         </div>
-        <p className="text-slate-300">请登录以继续</p>
+        <p className="text-zinc-300">请登录以继续</p>
       </div>
       <form onSubmit={handleSubmit} className="space-y-6">
         <div>
           <label 
             htmlFor="username" 
-            className="block text-sm font-medium text-slate-300 mb-2"
+            className="block text-sm font-medium text-zinc-300 mb-2"
           >
             用户名
           </label>
@@ -58,7 +57,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, mockUsers }) => {
             id="username"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            className="w-full bg-slate-900 border border-slate-700 rounded-md p-3 text-slate-200 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+            className="w-full bg-zinc-950 border border-zinc-700 rounded-md p-3 text-zinc-200 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
             required
             autoComplete="username"
           />
@@ -66,7 +65,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, mockUsers }) => {
         <div>
           <label 
             htmlFor="password" 
-            className="block text-sm font-medium text-slate-300 mb-2"
+            className="block text-sm font-medium text-zinc-300 mb-2"
           >
             密码
           </label>
@@ -75,7 +74,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, mockUsers }) => {
             id="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full bg-slate-900 border border-slate-700 rounded-md p-3 text-slate-200 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+            className="w-full bg-zinc-950 border border-zinc-700 rounded-md p-3 text-zinc-200 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
             required
             autoComplete="current-password"
           />
@@ -89,7 +88,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, mockUsers }) => {
           </button>
         </div>
       </form>
-       <div className="mt-6 text-center text-xs text-slate-500 bg-slate-900/50 p-3 rounded-md">
+       <div className="mt-6 text-center text-xs text-zinc-500 bg-zinc-950/50 p-3 rounded-md">
             <p className="font-semibold mb-2">测试账户:</p>
             <p>管理员: admin / admin</p>
             <p>操作员: operator1 / password</p>

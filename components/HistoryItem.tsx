@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Block, User } from '../types';
 
@@ -19,22 +18,22 @@ const RollbackIcon: React.FC = () => (
 
 const HistoryItem: React.FC<HistoryItemProps> = ({ block, isLatest, currentUser, onSelectBlock, onRollback }) => {
   return (
-    <div className="bg-slate-700/50 p-4 rounded-lg hover:bg-slate-700 transition-colors duration-200">
+    <div className="bg-zinc-800/50 p-4 rounded-lg hover:bg-zinc-800 transition-colors duration-200">
         <div className="flex justify-between items-start">
             <div className="flex-1 pr-4">
                 <p className="font-bold text-white">
                     版本 {block.data.version}
                     {block.data.changeType === 'rollback' && <span className="text-xs text-yellow-400 bg-yellow-900/50 px-2 py-0.5 rounded-full ml-2">回滚点</span>}
                 </p>
-                <p className="text-sm text-slate-300 mt-1">
+                <p className="text-sm text-zinc-300 mt-1">
                     {block.data.summary}
                 </p>
-                 <p className="text-xs text-slate-400 mt-2">
+                 <p className="text-xs text-zinc-400 mt-2">
                     <span className="font-semibold">操作员:</span> <span className="font-mono">{block.data.operator}</span>
                 </p>
             </div>
             <div className="text-right flex-shrink-0">
-                <p className="text-sm text-slate-300">{new Date(block.timestamp).toLocaleString()}</p>
+                <p className="text-sm text-zinc-300">{new Date(block.timestamp).toLocaleString()}</p>
                 <p className="font-mono text-xs text-cyan-400 mt-1 truncate" title={block.hash}>
                     {block.hash.substring(0, 16)}...
                 </p>
