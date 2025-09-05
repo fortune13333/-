@@ -29,7 +29,7 @@ interface DeviceDetailsProps {
 }
 
 const ShieldCheckIcon: React.FC = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24" stroke="currentColor" strokeWidth={2}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
   </svg>
 );
@@ -76,7 +76,7 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
   useEffect(() => {
     if (!settings.agentApiUrl) {
         setOtherViewingUsers([]);
-        return; // Collaboration feature is disabled if no agent is configured
+        return;
     }
 
     // 1. Initial join: Register presence immediately on component mount.
@@ -349,7 +349,7 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
                <div className="flex justify-between items-center mb-2">
                  <label htmlFor="config" className="block text-sm font-medium text-zinc-300">配置文本</label>
                  <div className="flex items-center gap-2">
-                    {settings.isAiGloballyEnabled && settings.ai.configCheck.enabled && (
+                    {settings.ai.configCheck.enabled && (
                         <button
                             type="button"
                             onClick={handleConfigCheck}
@@ -395,7 +395,7 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
                 </div>
             )}
             
-            {settings.isAiGloballyEnabled && settings.ai.commandGeneration.enabled && (
+            {settings.ai.commandGeneration.enabled && (
                 <div className="mb-6 bg-zinc-950/50 p-3 rounded-md">
                     <label htmlFor="ai-prompt" className="flex items-center gap-2 text-sm font-medium text-zinc-300 mb-2">
                         <SparklesIcon className="h-5 w-5 text-cyan-400" />

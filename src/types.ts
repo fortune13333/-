@@ -31,7 +31,6 @@ export interface AIServiceSettings {
 }
 
 export interface AppSettings {
-  isAiGloballyEnabled: boolean;
   ai: {
     analysis: AIServiceSettings;
     commandGeneration: AIServiceSettings;
@@ -48,8 +47,19 @@ export interface User {
 }
 
 // For real-time collaboration feature
-// FIX: Add SessionUser interface for real-time collaboration feature.
 export interface SessionUser {
     username: string;
     sessionId: string;
+}
+
+export interface AuditLogEntry {
+    timestamp: string;
+    username: string;
+    action: string;
+}
+
+export interface ConfigTemplate {
+  id: string;
+  name: string;
+  content: string;
 }

@@ -102,8 +102,7 @@ const analyzeConfigurationChange = async (
   changeType: BlockData['changeType'],
   changeDescription?: string,
 ): Promise<{ payload: NewBlockPayload; aiSuccess: boolean }> => {
-  const analysisEnabled = settings.isAiGloballyEnabled && settings.ai.analysis.enabled;
-  const { apiUrl: analysisApiUrl } = settings.ai.analysis;
+  const { enabled: analysisEnabled, apiUrl: analysisApiUrl } = settings.ai.analysis;
   const lastBlock = currentChain.length > 0 ? currentChain[currentChain.length - 1] : null;
   const lastConfig = lastBlock?.data?.config || '';
   
@@ -235,8 +234,7 @@ const generateConfigFromPrompt = async (
   currentConfig: string,
   settings: AppSettings
 ): Promise<string> => {
-    const generationEnabled = settings.isAiGloballyEnabled && settings.ai.commandGeneration.enabled;
-    if (!generationEnabled) {
+    if (!settings.ai.commandGeneration.enabled) {
         throw new Error('AI 命令生成功能已被禁用。');
     }
     const { apiUrl } = settings.ai.commandGeneration;
@@ -303,8 +301,7 @@ const checkConfiguration = async (
     deviceType: Device['type'],
     settings: AppSettings
 ): Promise<string> => {
-    const checkEnabled = settings.isAiGloballyEnabled && settings.ai.configCheck.enabled;
-    if (!checkEnabled) {
+    if (!settings.ai.configCheck.enabled) {
         throw new Error('AI 配置体检功能已被禁用。');
     }
     const { apiUrl } = settings.ai.configCheck;

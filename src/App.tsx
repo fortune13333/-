@@ -1,6 +1,5 @@
 import React from 'react';
-import { MOCK_USERS } from './constants';
-import { Device, Block, AppSettings, User } from './types';
+import { Device, Block, AppSettings, User, AuditLogEntry, ConfigTemplate } from './types';
 import { geminiService } from './services/geminiService';
 import Header from './components/Header';
 import Dashboard from './components/Dashboard';
@@ -19,7 +18,6 @@ import { AppError } from './utils/errors';
 
 
 const DEFAULT_SETTINGS: AppSettings = {
-  isAiGloballyEnabled: true,
   ai: {
     analysis: { enabled: true, apiUrl: '' },
     commandGeneration: { enabled: true, apiUrl: '' },
@@ -31,6 +29,9 @@ const DEFAULT_SETTINGS: AppSettings = {
 
 const App: React.FC = () => {
   const [devices, setDevices] = React.useState<Device[]>([]);
+  const [allUsers, setAllUsers] = React.useState<User[]>([]);
+  const [auditLog, setAuditLog] = React.useState<AuditLogEntry[]>([]);
+  const [templates, setTemplates] = React.useState<ConfigTemplate[]>([]);
   const [blockchains, setBlockchains] = React.useState<Record<string, Block[]>>({});
   const [selectedDevice, setSelectedDevice] = React.useState<Device | null>(null);
   const [isLoading, setIsLoading] = React.useState<boolean>(true);
@@ -54,6 +55,7 @@ const App: React.FC = () => {
         if (!isSilent) toast.error('未配置代理地址，无法加载数据。请在设置中配置。', { icon: '⚙️' });
         setDevices([]);
         setBlockchains({});
+        setTemplates([]);
         setIsLoading(false);
         return;
     }
@@ -75,10 +77,12 @@ const App: React.FC = () => {
       const data = await response.json();
       
       const newDevices = data.devices || [];
-      const newBlockchains = data.blockchains || {};
       
       setDevices(newDevices);
-      setBlockchains(newBlockchains);
+      setBlockchains(data.blockchains || {});
+      setAllUsers(data.users || []);
+      setAuditLog(data.audit_log || []);
+      setTemplates(data.templates || []);
 
       // After updating data, ensure selectedDevice is also updated or cleared to prevent stale state.
       setSelectedDevice(prevSelected => {
@@ -96,43 +100,34 @@ const App: React.FC = () => {
           displayMessage = '网络请求失败。请检查代理是否正在运行，URL是否正确，以及是否存在CORS问题。';
       }
       
-      // Only show toast and clear data on an initial, non-silent load failure.
-      // For silent background polls, we just log the error and keep the existing data.
       if (!isSilent) {
         toast.error(`从代理加载数据失败: ${displayMessage}`, { duration: 6000 });
-        // Fallback to empty state if agent is down on initial load
         setDevices([]);
         setBlockchains({});
+        setAllUsers([]);
+        setAuditLog([]);
+        setTemplates([]);
         setSelectedDevice(null);
       }
     } finally {
       if (!isSilent) setIsLoading(false);
     }
   }, [settings.agentApiUrl]);
+  
 
   React.useEffect(() => {
-    // Check for AI service availability on initial load.
     try {
       geminiService.checkKeyAvailability();
     } catch (error) {
       if (error instanceof AppError) {
-        setAiStatus({
-          isOk: false,
-          message: 'Google Gemini API 密钥未配置。',
-          code: error.code,
-        });
+        setAiStatus({ isOk: false, message: 'Google Gemini API 密钥未配置。', code: error.code });
       } else if (error instanceof Error) {
-          setAiStatus({
-          isOk: false,
-          message: error.message,
-          code: 'UNKNOWN_RUNTIME_ERROR',
-        });
+        setAiStatus({ isOk: false, message: error.message, code: 'UNKNOWN_RUNTIME_ERROR' });
       }
     }
   }, []);
 
   React.useEffect(() => {
-    // Load settings from localStorage (settings remain local to the browser)
     const storedSettings = localStorage.getItem('chaintrace_settings');
     if (storedSettings) {
         setSettings(JSON.parse(storedSettings));
@@ -140,34 +135,26 @@ const App: React.FC = () => {
         setSettings(DEFAULT_SETTINGS);
     }
 
-    // Load user from sessionStorage
     const storedUser = sessionStorage.getItem('chaintrace_user');
     if (storedUser) {
-        setCurrentUser(JSON.parse(storedUser));
+        const user = JSON.parse(storedUser);
+        setCurrentUser(user);
     }
     
   }, []);
 
-  // Effect for initial data load and setting up polling
   React.useEffect(() => {
     if (currentUser && settings.agentApiUrl) {
-      // 1. Initial fetch
       fetchDataFromAgent();
-
-      // 2. Set up polling for real-time updates
       const intervalId = setInterval(() => {
-        // Only poll if the page is visible and not already in a loading state
         if (!document.hidden && !isLoadingRef.current) {
-          fetchDataFromAgent(true); // silent fetch
+          fetchDataFromAgent(true);
         }
-      }, 5000); // Poll every 5 seconds
-
-      // 3. Cleanup on component unmount or when dependencies change
+      }, 5000);
       return () => clearInterval(intervalId);
     }
   }, [settings.agentApiUrl, currentUser, fetchDataFromAgent]);
   
-  // Check agent status and mode whenever URL changes
   React.useEffect(() => {
     const checkAgentStatus = async () => {
         if (settings.agentApiUrl) {
@@ -175,13 +162,13 @@ const App: React.FC = () => {
                 const url = createApiUrl(settings.agentApiUrl, '/api/health');
                 const response = await fetch(url);
                 if (!response.ok) {
-                    setAgentMode('live'); // Default to live if health check fails but is reachable
+                    setAgentMode('live');
                     return;
                 }
                 const data = await response.json();
                 setAgentMode(data.mode || 'live');
             } catch (e) {
-                setAgentMode('live'); // Default to live if fetch fails
+                setAgentMode('live');
             }
         }
     };
@@ -189,7 +176,6 @@ const App: React.FC = () => {
   }, [settings.agentApiUrl]);
 
   React.useEffect(() => {
-    // Save settings to localStorage whenever they change
     localStorage.setItem('chaintrace_settings', JSON.stringify(settings));
   }, [settings]);
 
@@ -239,14 +225,20 @@ const App: React.FC = () => {
   };
 
   const handleResetData = async () => {
-    const isConfirmed = window.confirm("您确定要重置所有数据到初始状态吗？所有已添加的配置历史将被清除。");
+    if (currentUser?.role !== 'admin') {
+      toast.error('权限不足。'); return;
+    }
+    const isConfirmed = window.confirm("您确定要重置所有数据到初始状态吗？所有已添加的配置历史和用户将被清除。");
     if (isConfirmed && settings.agentApiUrl) {
       setIsLoading(true);
       try {
         const url = createApiUrl(settings.agentApiUrl, '/api/reset');
-        const response = await fetch(url, { method: 'POST' });
+        const response = await fetch(url, { 
+            method: 'POST',
+            headers: { 'X-Actor-Username': currentUser.username }
+        });
         if (!response.ok) throw new Error("代理重置失败");
-        await fetchDataFromAgent(); // Refetch the now-empty data
+        await fetchDataFromAgent();
         setSelectedDevice(null);
         toast.success('数据已重置为初始状态!');
       } catch (error) {
@@ -258,8 +250,8 @@ const App: React.FC = () => {
   };
     
   const handleAddNewDevice = async (newDeviceData: Omit<Device, 'ipAddress'> & { ipAddress: string; }) => {
-    if (!settings.agentApiUrl) {
-      toast.error('请配置代理地址后再添加设备。');
+    if (!settings.agentApiUrl || !currentUser) {
+      toast.error('请配置代理地址并登录后再添加设备。');
       return;
     }
     const toastId = toast.loading(`正在添加设备 ${newDeviceData.name}...`);
@@ -267,7 +259,10 @@ const App: React.FC = () => {
         const url = createApiUrl(settings.agentApiUrl, '/api/devices');
         const response = await fetch(url, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+                'Content-Type': 'application/json',
+                'X-Actor-Username': currentUser.username
+            },
             body: JSON.stringify(newDeviceData),
         });
         if (response.status === 409) {
@@ -277,7 +272,7 @@ const App: React.FC = () => {
             throw new Error('代理返回错误。');
         }
         const newDevice = await response.json();
-        await fetchDataFromAgent(); // Refresh all data
+        await fetchDataFromAgent();
         setSelectedDevice(newDevice);
         setIsAddDeviceModalOpen(false);
         toast.success(`设备 "${newDevice.name}" 已成功添加！`, { id: toastId });
@@ -298,7 +293,7 @@ const App: React.FC = () => {
     }
     
     setIsLoading(true);
-    const toastId = toast.loading((settings.isAiGloballyEnabled && settings.ai.analysis.enabled) ? '正在提交并请求 AI 分析...' : '正在提交...');
+    const toastId = toast.loading(settings.ai.analysis.enabled ? '正在提交并请求 AI 分析...' : '正在提交...');
     
     try {
       const currentChain = blockchains[deviceId] || [];
@@ -310,7 +305,6 @@ const App: React.FC = () => {
         'update'
       );
 
-      // Post the data payload to the agent, which will build and save the block
       const url = createApiUrl(settings.agentApiUrl!, `/api/blockchains/${deviceId}`);
       const response = await fetch(url, {
           method: 'POST',
@@ -323,9 +317,9 @@ const App: React.FC = () => {
         throw new Error(errorData.detail || "无法将新区块保存到代理。");
       }
 
-      await fetchDataFromAgent(); // Refresh data from server for immediate feedback
+      await fetchDataFromAgent();
       
-      if (settings.isAiGloballyEnabled && settings.ai.analysis.enabled) {
+      if (settings.ai.analysis.enabled) {
           if (aiSuccess) {
             toast.success('配置已成功记录！', { id: toastId });
           } else {
@@ -362,16 +356,14 @@ const App: React.FC = () => {
   const executeRollback = async () => {
     if (!rollbackTarget || !currentUser || !settings.agentApiUrl) return;
     
-    // Capture the target block in a local variable to prevent race conditions.
     const blockToRollbackTo = rollbackTarget;
     const deviceId = blockToRollbackTo.data.deviceId;
     
     setIsLoading(true);
-    setRollbackTarget(null); // Close modal immediately
+    setRollbackTarget(null);
     const toastId = toast.loading(`正在回滚至版本 ${blockToRollbackTo.data.version}...`);
 
     try {
-      // The current chain must be fetched fresh from state before passing to service
       const currentChain = blockchains[deviceId] || []; 
       const lastVersion = currentChain.length > 0 ? currentChain[currentChain.length - 1].data.version : 0;
       const rollbackConfig = blockToRollbackTo.data.config;
@@ -393,7 +385,7 @@ const App: React.FC = () => {
         throw new Error(errorData.detail || "无法将回滚区块保存到代理。");
       }
 
-      await fetchDataFromAgent(); // Refresh data
+      await fetchDataFromAgent();
       
       toast.success(`已成功回滚至版本 ${blockToRollbackTo.data.version}！`, { id: toastId });
 
@@ -407,18 +399,19 @@ const App: React.FC = () => {
   };
 
   const handleDeleteDevice = async (deviceId: string) => {
-    if (!settings.agentApiUrl) return;
+    if (!settings.agentApiUrl || !currentUser) return;
     const deviceToDelete = devices.find(d => d.id === deviceId);
     if (!deviceToDelete) return;
 
     try {
         const url = createApiUrl(settings.agentApiUrl, `/api/devices/${deviceId}`);
         const response = await fetch(url, {
-            method: 'DELETE'
+            method: 'DELETE',
+            headers: { 'X-Actor-Username': currentUser.username }
         });
         if (!response.ok) throw new Error("代理删除设备失败");
 
-        await fetchDataFromAgent(); // Refresh data
+        await fetchDataFromAgent();
         
         if (selectedDevice?.id === deviceId) {
             setSelectedDevice(null);
@@ -433,7 +426,7 @@ const App: React.FC = () => {
     return (
         <div className="min-h-screen flex items-center justify-center">
             <Toaster position="top-center" toastOptions={{ className: '!bg-zinc-800 !text-zinc-100' }} />
-            <Login onLogin={handleLogin} mockUsers={MOCK_USERS} />
+            <Login onLogin={handleLogin} agentApiUrl={settings.agentApiUrl} />
         </div>
     );
   }
@@ -474,6 +467,11 @@ const App: React.FC = () => {
           <Dashboard 
             devices={devices} 
             blockchains={blockchains}
+            allUsers={allUsers}
+            auditLog={auditLog}
+            templates={templates}
+            agentApiUrl={settings.agentApiUrl}
+            onDataUpdate={() => fetchDataFromAgent(true)}
             onSelectDevice={handleSelectDevice}
             isLoading={isLoading}
             onResetData={handleResetData}
@@ -488,7 +486,6 @@ const App: React.FC = () => {
         onClose={() => setIsSettingsModalOpen(false)}
         settings={settings}
         onUpdateSettings={handleUpdateSettings}
-        currentUser={currentUser}
       />
       <AddDeviceModal
         isOpen={isAddDeviceModalOpen}

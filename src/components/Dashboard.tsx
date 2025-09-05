@@ -1,10 +1,17 @@
-import React from 'react';
-import { Device, Block, User } from '../types';
+import React, { useState } from 'react';
+import { Device, Block, User, AuditLogEntry, ConfigTemplate } from '../types';
 import { TrashIcon, PlusIcon } from './AIIcons';
+import AdminPanel from './AdminPanel';
+import BulkDeployModal from './BulkDeployModal';
 
 interface DashboardProps {
   devices: Device[];
   blockchains: Record<string, Block[]>;
+  allUsers: User[];
+  auditLog: AuditLogEntry[];
+  templates: ConfigTemplate[];
+  agentApiUrl?: string;
+  onDataUpdate: () => void;
   onSelectDevice: (device: Device) => void;
   isLoading: boolean;
   onResetData: () => void;
@@ -20,7 +27,7 @@ const DeviceIcon: React.FC<{ type: Device['type'] }> = ({ type }) => {
     Firewall: "M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z", // Shield
   };
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-cyan-400" fill="none" viewBox="0 0 24" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d={iconPath[type]} />
     </svg>
   );
@@ -43,9 +50,57 @@ const SkeletonCard: React.FC = () => (
   </div>
 );
 
-const Dashboard: React.FC<DashboardProps> = ({ devices, blockchains, onSelectDevice, isLoading, onResetData, onDeleteDevice, onOpenAddDeviceModal, currentUser }) => {
+const BulkActionsToolbar: React.FC<{
+    selectedCount: number;
+    onClear: () => void;
+    onDeploy: () => void;
+}> = ({ selectedCount, onClear, onDeploy }) => {
+    return (
+        <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-xl p-4 z-40">
+            <div className="bg-zinc-800 rounded-lg shadow-2xl flex items-center justify-between p-3 border border-zinc-700">
+                <span className="text-white font-semibold">{selectedCount} 台设备已选择</span>
+                <div className="flex items-center gap-2">
+                    <button onClick={onDeploy} className="text-sm bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-3 rounded-md transition-colors">
+                        部署模板
+                    </button>
+                    <button onClick={onClear} className="text-sm bg-zinc-700 hover:bg-zinc-600 text-white font-medium py-2 px-3 rounded-md transition-colors">
+                        清空选择
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const Dashboard: React.FC<DashboardProps> = ({ 
+  devices, blockchains, onSelectDevice, isLoading, onResetData, onDeleteDevice, onOpenAddDeviceModal, currentUser, allUsers, auditLog, templates, agentApiUrl, onDataUpdate 
+}) => {
   
   const isAdmin = currentUser.role === 'admin';
+  const [selectedDeviceIds, setSelectedDeviceIds] = useState<Set<string>>(new Set());
+  const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
+
+  const handleToggleSelection = (deviceId: string) => {
+      setSelectedDeviceIds(prev => {
+          const newSelection = new Set(prev);
+          if (newSelection.has(deviceId)) {
+              newSelection.delete(deviceId);
+          } else {
+              newSelection.add(deviceId);
+          }
+          return newSelection;
+      });
+  };
+
+  const clearSelection = () => {
+      setSelectedDeviceIds(new Set());
+  };
+
+  const handleDeploymentComplete = () => {
+    setIsDeployModalOpen(false);
+    clearSelection();
+    onDataUpdate(); // Refresh data after deployment
+  };
 
   const handleDelete = (e: React.MouseEvent, deviceId: string, deviceName: string) => {
     e.stopPropagation(); // Prevent card click event from firing
@@ -99,12 +154,28 @@ const Dashboard: React.FC<DashboardProps> = ({ devices, blockchains, onSelectDev
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {devices.map(device => {
             const lastBlock = blockchains[device.id]?.[blockchains[device.id].length - 1];
+            const isSelected = selectedDeviceIds.has(device.id);
+
             return (
               <div 
                 key={device.id}
                 onClick={() => onSelectDevice(device)}
-                className="relative bg-zinc-900 p-4 rounded-lg shadow-md cursor-pointer hover:bg-zinc-800 transition-all duration-200 group flex flex-col justify-between border border-transparent hover:border-cyan-500/50 hover:shadow-lg hover:shadow-cyan-500/10"
+                className={`relative bg-zinc-900 p-4 rounded-lg shadow-md cursor-pointer hover:bg-zinc-800 transition-all duration-200 group flex flex-col justify-between border ${isSelected ? 'border-cyan-500 shadow-lg shadow-cyan-500/10' : 'border-transparent hover:border-cyan-500/50'}`}
               >
+                 {isAdmin && (
+                    <div 
+                      className="absolute top-4 left-4 z-10 h-5 w-5"
+                      onClick={(e) => e.stopPropagation()}
+                   >
+                       <input 
+                           type="checkbox"
+                           checked={isSelected}
+                           onChange={() => handleToggleSelection(device.id)}
+                           className="h-5 w-5 rounded bg-zinc-800 border-zinc-600 text-cyan-600 focus:ring-cyan-500"
+                           aria-label={`Select device ${device.name}`}
+                       />
+                   </div>
+                 )}
                 {isAdmin && (
                   <button
                     onClick={(e) => handleDelete(e, device.id, device.name)}
@@ -115,7 +186,7 @@ const Dashboard: React.FC<DashboardProps> = ({ devices, blockchains, onSelectDev
                       <TrashIcon />
                   </button>
                 )}
-                <div>
+                <div className={isAdmin ? 'pl-8' : ''}>
                   <div className="flex items-center gap-4">
                     <div className="bg-zinc-950 p-2 rounded-md">
                       <DeviceIcon type={device.type} />
@@ -126,7 +197,7 @@ const Dashboard: React.FC<DashboardProps> = ({ devices, blockchains, onSelectDev
                     </div>
                   </div>
                 </div>
-                <div className="mt-4 text-sm text-zinc-300 border-t border-zinc-800 pt-3 space-y-2">
+                <div className={`mt-4 text-sm text-zinc-300 border-t border-zinc-800 pt-3 space-y-2 ${isAdmin ? 'pl-8' : ''}`}>
                   {lastBlock ? (
                     <>
                       <p className="truncate text-zinc-300" title={lastBlock.data.summary}>
@@ -147,6 +218,35 @@ const Dashboard: React.FC<DashboardProps> = ({ devices, blockchains, onSelectDev
             );
           })}
         </div>
+      )}
+      {isAdmin && selectedDeviceIds.size > 0 && (
+          <BulkActionsToolbar 
+              selectedCount={selectedDeviceIds.size}
+              onClear={clearSelection}
+              onDeploy={() => setIsDeployModalOpen(true)}
+          />
+      )}
+      {isAdmin && (
+        <AdminPanel
+          currentUser={currentUser}
+          allUsers={allUsers}
+          auditLog={auditLog}
+          templates={templates}
+          agentApiUrl={agentApiUrl}
+          onDataUpdate={onDataUpdate}
+        />
+      )}
+      {isDeployModalOpen && (
+          <BulkDeployModal 
+              isOpen={isDeployModalOpen}
+              onClose={() => setIsDeployModalOpen(false)}
+              devices={devices}
+              selectedDeviceIds={Array.from(selectedDeviceIds)}
+              templates={templates}
+              agentApiUrl={agentApiUrl}
+              currentUser={currentUser}
+              onDeploymentComplete={handleDeploymentComplete}
+          />
       )}
     </div>
   );

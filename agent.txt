@@ -1,5 +1,5 @@
 #
-# ChainTrace Agent V3.5 - Collaboration Stability Final Fix
+# ChainTrace Agent V4.8 - Template Management & Bulk Deployment
 #
 import sys
 import configparser
@@ -8,31 +8,33 @@ import json
 import threading
 import datetime
 import hashlib
+import uuid
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from netmiko import ConnectHandler, NetmikoAuthenticationException, NetmikoTimeoutException
 
 # --- Basic Setup ---
 
-# Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # --- Data File and Lock ---
 DATA_FILE = Path("chaintrace_data.json")
-# Thread lock to prevent race conditions during read-modify-write operations
 data_lock = threading.Lock()
+MAX_LOG_ENTRIES = 1000
 
 # --- In-memory store for active user sessions ---
 ACTIVE_SESSIONS: Dict[str, List[Dict[str, str]]] = {}
 sessions_lock = threading.Lock()
 
+
 # --- Hashing Helper ---
 def _calculate_block_hash(block_data_dict: Dict, index: int, timestamp: str, prev_hash: str) -> str:
     """Calculates a deterministic SHA-256 hash for a block's content."""
+    # Use ensure_ascii=False to handle non-ASCII characters correctly
     block_content_str = (
         f"{index}{timestamp}"
         f"{json.dumps(block_data_dict, sort_keys=True, separators=(',', ':'), ensure_ascii=False)}"
@@ -47,6 +49,13 @@ INITIAL_DATA_RAW = {
         {"id": "SW01-SFO", "name": "Access Switch SFO", "ipAddress": "10.10.5.254", "type": "Switch"},
         {"id": "FW01-LON", "name": "Edge Firewall London", "ipAddress": "203.0.113.1", "type": "Firewall"},
     ],
+    "users": [
+        {"id": 1, "username": "admin", "password": "admin", "role": "admin"},
+        {"id": 2, "username": "operator1", "password": "password", "role": "operator"},
+        {"id": 3, "username": "net_admin", "password": "password123", "role": "operator"},
+    ],
+    "audit_log": [],
+    "templates": [],
     "blockchains": {
         "RTR01-NYC": [{
             "index": 0, "timestamp": "2023-01-01T10:00:00Z",
@@ -64,7 +73,8 @@ INITIAL_DATA_RAW = {
 }
 
 def get_initial_data_with_hashes():
-    data = json.loads(json.dumps(INITIAL_DATA_RAW))
+    """Calculates initial hashes for the default dataset."""
+    data = json.loads(json.dumps(INITIAL_DATA_RAW)) # Deep copy
     for chain in data["blockchains"].values():
         for block in chain:
             block["hash"] = _calculate_block_hash(block["data"], block["index"], block["timestamp"], block["prev_hash"])
@@ -74,6 +84,19 @@ INITIAL_DATA = get_initial_data_with_hashes()
 
 # --- Data Handling Functions ---
 
+def log_action(data: Dict, username: str, action: str):
+    """Creates an audit log entry and prepends it to the log."""
+    log_entry = {
+        "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+        "username": username,
+        "action": action
+    }
+    # Ensure audit_log exists and is a list
+    if "audit_log" not in data or not isinstance(data["audit_log"], list):
+        data["audit_log"] = []
+    data["audit_log"].insert(0, log_entry)
+    data["audit_log"] = data["audit_log"][:MAX_LOG_ENTRIES]
+
 def _load_data_nolock() -> Dict[str, Any]:
     """Loads data without acquiring a lock. MUST be called from within a locked context."""
     if not DATA_FILE.exists():
@@ -82,10 +105,15 @@ def _load_data_nolock() -> Dict[str, Any]:
         return INITIAL_DATA
     try:
         with open(DATA_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
+            data = json.load(f)
+            # Ensure keys exist for backward compatibility
+            if 'users' not in data: data['users'] = INITIAL_DATA['users']
+            if 'audit_log' not in data: data['audit_log'] = []
+            if 'templates' not in data: data['templates'] = []
+            return data
     except (json.JSONDecodeError, IOError) as e:
         logging.error(f"Error reading {DATA_FILE}: {e}. Returning empty structure.")
-        return {"devices": [], "blockchains": {}}
+        return {"devices": [], "blockchains": {}, "users": [], "audit_log": [], "templates": []}
 
 def _save_data_nolock(data: Dict[str, Any]):
     """Saves data without acquiring a lock. MUST be called from within a locked context."""
@@ -99,9 +127,9 @@ def _save_data_nolock(data: Dict[str, Any]):
 
 config = configparser.ConfigParser()
 try:
+    # Use config.read() which is safer than open()
     config.read('config.ini', encoding='utf-8')
-    if not config.sections():
-        raise FileNotFoundError("config.ini not found or is empty.")
+    if not config.sections(): raise FileNotFoundError("config.ini not found or is empty.")
 except (configparser.Error, FileNotFoundError, UnicodeDecodeError) as e:
     logging.error(f"CRITICAL: An unexpected error occurred while reading config.ini: {e}")
     sys.exit(1)
@@ -109,263 +137,292 @@ except (configparser.Error, FileNotFoundError, UnicodeDecodeError) as e:
 # --- API Models ---
 
 class Device(BaseModel):
-    id: str
-    name: str
-    ipAddress: str
-    type: str
+    id: str; name: str; ipAddress: str; type: str
 
 class NewBlockPayload(BaseModel):
-    operator: str
-    config: str
-    diff: str
-    changeType: str
-    summary: str
-    analysis: str
-    security_risks: str
+    operator: str; config: str; diff: str; changeType: str; summary: str; analysis: str; security_risks: str
     
 class ConfigPayload(BaseModel):
     config: str
 
 class SessionPayload(BaseModel):
-    username: str
-    sessionId: str
+    username: str; sessionId: str
+    
+class User(BaseModel):
+    id: int; username: str; password: str; role: str
+
+class UserUpdatePayload(BaseModel):
+    username: str; role: str; password: Optional[str] = None
+
+class ConfigTemplatePayload(BaseModel):
+    id: str; name: str; content: str
+
+class BulkDeployPayload(BaseModel):
+    template_id: str
+    device_ids: List[str]
+
 
 # --- FastAPI App Initialization ---
 
-app = FastAPI(
-    title="ChainTrace Local Agent",
-    description="Acts as a bridge between the ChainTrace UI and real network devices, and serves as the central data store for LAN collaboration.",
-    version="3.5.0",
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app = FastAPI(title="ChainTrace Local Agent", version="4.8.0")
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 # --- Helper Functions ---
-
 def get_device_info(device_id: str):
     device_id_upper = device_id.upper()
-    if not config.has_option('device_map', device_id_upper):
-        return None
+    if not config.has_option('device_map', device_id_upper): return None
     try:
         host, device_type = config.get('device_map', device_id_upper).split(',')
-        return {
-            'host': host.strip(), 'device_type': device_type.strip(),
-            'username': config.get('credentials', 'username'),
-            'password': config.get('credentials', 'password'),
-            'secret': config.get('credentials', 'secret', fallback=None),
-            'timeout': 15,
-        }
+        return {'host': host.strip(), 'device_type': device_type.strip(), 'username': config.get('credentials', 'username'), 'password': config.get('credentials', 'password'), 'secret': config.get('credentials', 'secret', fallback=None), 'timeout': 15}
     except (configparser.NoSectionError, configparser.NoOptionError) as e:
-        logging.error(f"Configuration error for device '{device_id}': {e}")
-        return None
+        logging.error(f"Configuration error for device '{device_id}': {e}"); return None
 
 def is_simulation_mode():
-    try:
-        return config.get('credentials', 'username').upper() == 'SIM_USER'
-    except (configparser.NoSectionError, configparser.NoOptionError):
-        return False
+    try: return config.get('credentials', 'username').upper() == 'SIM_USER'
+    except (configparser.NoSectionError, configparser.NoOptionError): return False
+
+def _verify_admin(data: Dict, username: str):
+    actor_user = next((u for u in data["users"] if u["username"] == username), None)
+    if not actor_user or actor_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Permission denied. Administrator role required.")
+
+def generate_simple_diff(old_config: str, new_config: str) -> str:
+    old_lines = old_config.splitlines()
+    new_lines = new_config.splitlines()
+    diff = []
+    old_set = set(old_lines)
+    new_set = set(new_lines)
+    for line in old_lines:
+        if line not in new_set: diff.append(f"- {line}")
+    for line in new_lines:
+        if line not in old_set: diff.append(f"+ {line}")
+    return "\n".join(diff) or "No textual changes detected."
+
 
 # --- API Endpoints ---
-
 @app.get("/api/data")
 def get_all_data():
     logging.info("Request received for GET /api/data")
-    with data_lock:
-        return _load_data_nolock()
+    with data_lock: return _load_data_nolock()
 
 @app.post("/api/reset", status_code=204)
-def reset_data():
-    logging.warning("Request received to RESET all data.")
+def reset_data(actor: str = Header(..., alias="X-Actor-Username")):
+    logging.warning(f"Request received from '{actor}' to RESET all data.")
     with data_lock:
+        data = _load_data_nolock(); _verify_admin(data, actor)
+        log_action(data, actor, "重置了所有应用数据到初始状态。")
         _save_data_nolock(INITIAL_DATA)
     return {}
 
 @app.post("/api/devices", status_code=201)
-def add_device(device: Device):
-    logging.info(f"Request received to ADD device: {device.id}")
+def add_device(device: Device, actor: str = Header(..., alias="X-Actor-Username")):
     with data_lock:
-        data = _load_data_nolock()
-        
+        data = _load_data_nolock(); _verify_admin(data, actor)
         if any(d['id'] == device.id for d in data['devices']):
             raise HTTPException(status_code=409, detail=f"Device with ID '{device.id}' already exists.")
-        
         data['devices'].append(device.dict())
-        
-        genesis_block_data = {
-            "deviceId": device.id, "version": 1, "operator": "system_init",
-            "config": f"hostname {device.name}\n!\n! Initial configuration created by ChainTrace.",
-            "diff": f"+ hostname {device.name}\n+ !\n+ ! Initial configuration created by ChainTrace.",
-            "changeType": "initial", "summary": "设备已创建。",
-            "analysis": "这是新设备的第一个配置区块，用于建立基线。",
-            "security_risks": "无。这是一个标准的初始设置。",
-        }
-        timestamp = datetime.datetime.utcnow().isoformat() + "Z"
-        hash_hex = _calculate_block_hash(genesis_block_data, 0, timestamp, "0")
-        
-        genesis_block = {
-            "index": 0, "timestamp": timestamp, "data": genesis_block_data,
-            "prev_hash": "0", "hash": hash_hex
-        }
+        genesis_block_data = {"deviceId": device.id, "version": 1, "operator": "system_init", "config": f"hostname {device.name}\n!\n! Initial configuration created by ChainTrace.", "diff": f"+ hostname {device.name}\n+ !\n+ ! Initial configuration created by ChainTrace.", "changeType": "initial", "summary": "设备已创建。", "analysis": "这是新设备的第一个配置区块，用于建立基线。", "security_risks": "无。这是一个标准的初始设置。"}
+        timestamp = datetime.datetime.utcnow().isoformat() + "Z"; hash_hex = _calculate_block_hash(genesis_block_data, 0, timestamp, "0")
+        genesis_block = {"index": 0, "timestamp": timestamp, "data": genesis_block_data, "prev_hash": "0", "hash": hash_hex}
         data['blockchains'][device.id] = [genesis_block]
-        
+        log_action(data, actor, f"添加了新设备 '{device.name}' (ID: {device.id})。")
         _save_data_nolock(data)
     return device
 
 @app.delete("/api/devices/{device_id}", status_code=204)
-def delete_device(device_id: str):
-    logging.info(f"Request received to DELETE device: {device_id}")
+def delete_device(device_id: str, actor: str = Header(..., alias="X-Actor-Username")):
     with data_lock:
-        data = _load_data_nolock()
-        
-        initial_device_count = len(data['devices'])
+        data = _load_data_nolock(); _verify_admin(data, actor)
+        device_to_delete = next((d for d in data['devices'] if d['id'] == device_id), None)
+        if not device_to_delete: raise HTTPException(status_code=404, detail=f"Device with ID '{device_id}' not found.")
         data['devices'] = [d for d in data['devices'] if d['id'] != device_id]
-        
-        if len(data['devices']) == initial_device_count:
-            raise HTTPException(status_code=404, detail=f"Device with ID '{device_id}' not found.")
-            
-        if device_id in data['blockchains']:
-            del data['blockchains'][device_id]
-        
+        if device_id in data['blockchains']: del data['blockchains'][device_id]
+        log_action(data, actor, f"删除了设备 '{device_to_delete['name']}' (ID: {device_id})。")
         _save_data_nolock(data)
     return {}
 
 @app.post("/api/blockchains/{device_id}", status_code=201)
 def add_block(device_id: str, payload: NewBlockPayload):
-    logging.info(f"Request received to ADD block to device: {device_id}")
-    new_block_to_return = None
     with data_lock:
         data = _load_data_nolock()
-        
-        if device_id not in data['blockchains'] or not data['blockchains'][device_id]:
-            raise HTTPException(status_code=404, detail=f"Blockchain for device ID '{device_id}' not found or is empty.")
-        
-        chain = data['blockchains'][device_id]
-        last_block = chain[-1]
-        
-        new_index = last_block['index'] + 1
-        new_version = last_block['data']['version'] + 1
-        prev_hash = last_block['hash']
-        timestamp = datetime.datetime.utcnow().isoformat() + "Z"
-        
+        if device_id not in data['blockchains'] or not data['blockchains'][device_id]: raise HTTPException(status_code=404, detail=f"Blockchain for device ID '{device_id}' not found or is empty.")
+        chain = data['blockchains'][device_id]; last_block = chain[-1]
+        new_index = last_block['index'] + 1; new_version = last_block['data']['version'] + 1; prev_hash = last_block['hash']; timestamp = datetime.datetime.utcnow().isoformat() + "Z"
         new_block_data = {"deviceId": device_id, "version": new_version, **payload.model_dump()}
         new_hash = _calculate_block_hash(new_block_data, new_index, timestamp, prev_hash)
-        
-        new_block = {
-            "index": new_index, "timestamp": timestamp, "data": new_block_data,
-            "prev_hash": prev_hash, "hash": new_hash
-        }
-        
-        chain.append(new_block)
-        _save_data_nolock(data)
-        new_block_to_return = new_block
-
-    return new_block_to_return
+        new_block = {"index": new_index, "timestamp": timestamp, "data": new_block_data, "prev_hash": prev_hash, "hash": new_hash}
+        chain.append(new_block); _save_data_nolock(data)
+    return new_block
 
 @app.get("/api/health")
-def health_check():
-    return {
-        "status": "ok", "message": "ChainTrace Agent is running.",
-        "mode": "simulation" if is_simulation_mode() else "live"
-    }
+def health_check(): return {"status": "ok", "mode": "simulation" if is_simulation_mode() else "live"}
 
 @app.get("/api/device/{device_id}/config")
 def get_config(device_id: str):
-    logging.info(f"Received GET config for device: {device_id}")
-    if is_simulation_mode():
-        mock_config = f"hostname {device_id}\n!\n! End of simulated config"
-        return {"config": mock_config}
-
+    if is_simulation_mode(): return {"config": f"hostname {device_id}\n!\n! End of simulated config"}
     device_info = get_device_info(device_id)
-    if not device_info:
-        raise HTTPException(status_code=404, detail=f"Device ID '{device_id}' not found in configuration.")
-
+    if not device_info: raise HTTPException(status_code=404, detail=f"Device ID '{device_id}' not found in configuration.")
     try:
-        with ConnectHandler(**device_info) as net_connect:
-            net_connect.enable()
-            output = net_connect.send_command('show running-config', expect_string=r'#')
+        with ConnectHandler(**device_info) as net_connect: net_connect.enable(); output = net_connect.send_command('show running-config', expect_string=r'#')
         return {"config": output}
-    except Exception as e:
-        logging.error(f"Error connecting to {device_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to connect to device: {e}")
+    except Exception as e: raise HTTPException(status_code=500, detail=f"Failed to connect to device: {e}")
 
 @app.post("/api/device/{device_id}/config")
 def set_config(device_id: str, payload: ConfigPayload):
-    logging.info(f"Received POST config for device: {device_id}")
-    if is_simulation_mode():
-        return {"status": "success", "message": "Configuration push simulated."}
-
+    if is_simulation_mode(): return {"status": "success", "message": "Configuration push simulated."}
     device_info = get_device_info(device_id)
-    if not device_info:
-        raise HTTPException(status_code=404, detail=f"Device ID '{device_id}' not found in configuration.")
-    
+    if not device_info: raise HTTPException(status_code=404, detail=f"Device ID '{device_id}' not found in configuration.")
     config_commands = payload.config.splitlines()
-    if not config_commands:
-        raise HTTPException(status_code=400, detail="Configuration payload empty.")
-
+    if not config_commands: raise HTTPException(status_code=400, detail="Configuration payload empty.")
     try:
-        with ConnectHandler(**device_info) as net_connect:
-            net_connect.enable()
-            output = net_connect.send_config_set(config_commands)
+        with ConnectHandler(**device_info) as net_connect: net_connect.enable(); output = net_connect.send_config_set(config_commands)
         return {"status": "success", "output": output}
-    except Exception as e:
-        logging.error(f"Error pushing config to {device_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to push config: {e}")
+    except Exception as e: raise HTTPException(status_code=500, detail=f"Failed to push config: {e}")
 
+# --- User Management Endpoints ---
+@app.get("/api/users")
+def get_users():
+    with data_lock: data = _load_data_nolock(); return data.get("users", [])
+
+@app.post("/api/users", status_code=201)
+def create_user(user_payload: UserUpdatePayload, actor: str = Header(..., alias="X-Actor-Username")):
+    with data_lock:
+        data = _load_data_nolock(); _verify_admin(data, actor)
+        users = data.get("users", [])
+        if any(u['username'] == user_payload.username for u in users): raise HTTPException(status_code=409, detail="Username already exists")
+        if not user_payload.password: raise HTTPException(status_code=400, detail="Password is required for new users")
+        new_id = max([u['id'] for u in users] or [0]) + 1
+        new_user = {"id": new_id, "username": user_payload.username, "password": user_payload.password, "role": user_payload.role}
+        users.append(new_user); data['users'] = users
+        log_action(data, actor, f"创建了新用户 '{new_user['username']}'，角色为 '{new_user['role']}'。")
+        _save_data_nolock(data); return new_user
+
+@app.put("/api/users/{user_id}")
+def update_user(user_id: int, payload: UserUpdatePayload, actor: str = Header(..., alias="X-Actor-Username")):
+    with data_lock:
+        data = _load_data_nolock(); _verify_admin(data, actor)
+        users = data.get("users", []); user_to_update = next((u for u in users if u['id'] == user_id), None)
+        if not user_to_update: raise HTTPException(status_code=404, detail="User not found")
+        if user_to_update['username'] != payload.username and any(u['username'] == payload.username for u in users): raise HTTPException(status_code=409, detail="Username already exists")
+        log_message = f"更新了用户 '{payload.username}' (ID: {user_id}) 的信息。"
+        if user_to_update['role'] != payload.role: log_message += f" 角色从 '{user_to_update['role']}' 变为 '{payload.role}'。"
+        if payload.password: log_message += " 密码已重置。"
+        user_to_update['username'] = payload.username; user_to_update['role'] = payload.role
+        if payload.password: user_to_update['password'] = payload.password
+        data['users'] = users; log_action(data, actor, log_message); _save_data_nolock(data); return user_to_update
+
+@app.delete("/api/users/{user_id}", status_code=204)
+def delete_user(user_id: int, actor: str = Header(..., alias="X-Actor-Username")):
+    with data_lock:
+        data = _load_data_nolock(); _verify_admin(data, actor)
+        users = data.get("users", []); user_to_delete = next((u for u in users if u['id'] == user_id), None)
+        if not user_to_delete: raise HTTPException(status_code=404, detail="User not found")
+        users = [u for u in users if u['id'] != user_id]; data['users'] = users
+        log_action(data, actor, f"删除了用户 '{user_to_delete['username']}' (ID: {user_id})。")
+        _save_data_nolock(data); return {}
+
+# --- Session Management Endpoints ---
 @app.get("/api/sessions/{device_id}")
 def get_device_sessions(device_id: str):
-    with sessions_lock:
-        return ACTIVE_SESSIONS.get(device_id, [])
+    with sessions_lock: return ACTIVE_SESSIONS.get(device_id, [])
 
 @app.post("/api/sessions/{device_id}", status_code=204)
 def join_device_session(device_id: str, payload: SessionPayload):
     with sessions_lock:
-        current_sessions = ACTIVE_SESSIONS.get(device_id, [])
-        # Robust "upsert" logic:
-        # Remove any existing session with the same session ID to handle refreshes.
-        updated_sessions = [s for s in current_sessions if s['sessionId'] != payload.sessionId]
-        # Add the new/updated session.
-        updated_sessions.append(payload.model_dump())
-        ACTIVE_SESSIONS[device_id] = updated_sessions
-    
-    user_list = [f"{s['username']}({s['sessionId'][-4:]})" for s in ACTIVE_SESSIONS.get(device_id, [])]
-    logging.info(f"User '{payload.username}' joined session for '{device_id}'. Current viewers: {user_list}")
+        current_sessions = ACTIVE_SESSIONS.get(device_id, []); updated_sessions = [s for s in current_sessions if s['sessionId'] != payload.sessionId]
+        updated_sessions.append(payload.model_dump()); ACTIVE_SESSIONS[device_id] = updated_sessions
     return {}
 
 @app.delete("/api/sessions/{device_id}/{session_id}", status_code=204)
 def leave_device_session_endpoint(device_id: str, session_id: str):
     with sessions_lock:
         if device_id in ACTIVE_SESSIONS:
-            # Create the new list without the leaving session
-            current_sessions = ACTIVE_SESSIONS[device_id]
-            updated_sessions = [s for s in current_sessions if s['sessionId'] != session_id]
-
-            # Only log and modify if a session was actually removed
-            if len(updated_sessions) < len(current_sessions):
-                logging.info(f"Session {session_id} left '{device_id}'.")
-                
-                # If the list is now empty, remove the key entirely. Otherwise, update it.
-                if not updated_sessions:
-                    del ACTIVE_SESSIONS[device_id]
-                    logging.info(f"All sessions for device '{device_id}' closed. Removing key.")
-                else:
-                    ACTIVE_SESSIONS[device_id] = updated_sessions
+            updated_sessions = [s for s in ACTIVE_SESSIONS[device_id] if s['sessionId'] != session_id]
+            if not updated_sessions: del ACTIVE_SESSIONS[device_id]
+            else: ACTIVE_SESSIONS[device_id] = updated_sessions
     return {}
+
+# --- Template Management Endpoints ---
+@app.get("/api/templates")
+def get_templates():
+    with data_lock: data = _load_data_nolock(); return data.get("templates", [])
+
+@app.post("/api/templates", status_code=201)
+def create_template(payload: ConfigTemplatePayload, actor: str = Header(..., alias="X-Actor-Username")):
+    with data_lock:
+        data = _load_data_nolock(); _verify_admin(data, actor)
+        templates = data.get("templates", [])
+        if any(t['name'] == payload.name for t in templates): raise HTTPException(status_code=409, detail="Template name already exists")
+        new_template = payload.model_dump()
+        templates.append(new_template)
+        log_action(data, actor, f"创建了新配置模板 '{payload.name}'。")
+        _save_data_nolock(data)
+    return new_template
+
+@app.put("/api/templates/{template_id}")
+def update_template(template_id: str, payload: ConfigTemplatePayload, actor: str = Header(..., alias="X-Actor-Username")):
+    with data_lock:
+        data = _load_data_nolock(); _verify_admin(data, actor)
+        templates = data.get("templates", []); template_to_update = next((t for t in templates if t['id'] == template_id), None)
+        if not template_to_update: raise HTTPException(status_code=404, detail="Template not found")
+        if template_to_update['name'] != payload.name and any(t['name'] == payload.name for t in templates): raise HTTPException(status_code=409, detail="Template name already exists")
+        template_to_update['name'] = payload.name; template_to_update['content'] = payload.content
+        log_action(data, actor, f"更新了配置模板 '{payload.name}'。")
+        _save_data_nolock(data)
+    return template_to_update
+
+@app.delete("/api/templates/{template_id}", status_code=204)
+def delete_template(template_id: str, actor: str = Header(..., alias="X-Actor-Username")):
+    with data_lock:
+        data = _load_data_nolock(); _verify_admin(data, actor)
+        templates = data.get("templates", []); template_to_delete = next((t for t in templates if t['id'] == template_id), None)
+        if not template_to_delete: raise HTTPException(status_code=404, detail="Template not found")
+        data['templates'] = [t for t in templates if t['id'] != template_id]
+        log_action(data, actor, f"删除了配置模板 '{template_to_delete['name']}'。")
+        _save_data_nolock(data)
+    return {}
+
+@app.post("/api/bulk-deploy")
+def bulk_deploy(payload: BulkDeployPayload, actor: str = Header(..., alias="X-Actor-Username")):
+    with data_lock:
+        data = _load_data_nolock(); _verify_admin(data, actor)
+        template = next((t for t in data.get("templates", []) if t["id"] == payload.template_id), None)
+        if not template: raise HTTPException(status_code=404, detail="Template not found")
+
+        log_action(data, actor, f"发起批量部署，使用模板 '{template['name']}' 到 {len(payload.device_ids)} 个设备。")
+        
+        success_count, failures = 0, []
+        for device_id in payload.device_ids:
+            try:
+                if device_id not in data['blockchains'] or not data['blockchains'][device_id]: raise ValueError("Blockchain not found")
+                chain = data['blockchains'][device_id]; last_block = chain[-1]
+                
+                new_config = template['content']; last_config = last_block['data']['config']
+                simple_diff = generate_simple_diff(last_config, new_config)
+                
+                block_payload = {"operator": actor, "config": new_config, "diff": simple_diff, "changeType": "update", "summary": f"批量部署模板 '{template['name']}'。", "analysis": "此变更是通过批量部署模板执行的，未进行独立的AI分析。", "security_risks": "未进行独立的AI安全评估。"}
+                
+                new_index = last_block['index'] + 1; new_version = last_block['data']['version'] + 1; prev_hash = last_block['hash']; timestamp = datetime.datetime.utcnow().isoformat() + "Z"
+                new_block_data = {"deviceId": device_id, "version": new_version, **block_payload}
+                new_hash = _calculate_block_hash(new_block_data, new_index, timestamp, prev_hash)
+                new_block = {"index": new_index, "timestamp": timestamp, "data": new_block_data, "prev_hash": prev_hash, "hash": new_hash}
+                chain.append(new_block); success_count += 1
+            except Exception as e:
+                failures.append(f"{device_id}: {str(e)}")
+        
+        _save_data_nolock(data)
+        return {"message": f"批量部署完成。成功: {success_count}, 失败: {len(failures)}.", "failures": failures}
+
 
 if __name__ == "__main__":
     import uvicorn
-    with data_lock:
-        _load_data_nolock() # Initialize data file on startup
+    with data_lock: _load_data_nolock() # Initialize data file on startup
     try:
         host = config.get('server', 'host', fallback='127.0.0.1')
         port = config.getint('server', 'port', fallback=8000)
         logging.info(f"Starting ChainTrace Agent server at http://{host}:{port}")
         uvicorn.run(app, host=host, port=port)
-    except (configparser.NoSectionError, configparser.NoOptionError) as e:
-        logging.error(f"Could not read server config, using defaults. Error: {e}")
+    except Exception as e:
+        logging.error(f"Could not start server. Error: {e}")
+        # Fallback to default if config is broken
         uvicorn.run(app, host="127.0.0.1", port=8000)
