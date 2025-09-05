@@ -31,6 +31,7 @@ export interface AIServiceSettings {
 }
 
 export interface AppSettings {
+  isAiGloballyEnabled: boolean;
   ai: {
     analysis: AIServiceSettings;
     commandGeneration: AIServiceSettings;
@@ -46,6 +47,8 @@ export interface User {
   role: 'admin' | 'operator';
 }
 
+// For real-time collaboration feature
+// FIX: Add SessionUser interface for real-time collaboration feature.
 export interface SessionUser {
     username: string;
     sessionId: string;

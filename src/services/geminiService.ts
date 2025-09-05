@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { Block, BlockData, AppSettings, Device } from "../types";
+import { Block, BlockData, AppSettings, Device } from '../types';
 import { AppError } from "../utils/errors";
 
 // --- Singleton Initializer for the Google AI Client ---
@@ -102,9 +102,8 @@ const analyzeConfigurationChange = async (
   changeType: BlockData['changeType'],
   changeDescription?: string,
 ): Promise<{ payload: NewBlockPayload; aiSuccess: boolean }> => {
-  const { enabled: analysisEnabled } = settings.ai.analysis;
-  const analysisApiUrl = process.env.VITE_ANALYSIS_API_URL || settings.ai.analysis.apiUrl;
-  
+  const analysisEnabled = settings.isAiGloballyEnabled && settings.ai.analysis.enabled;
+  const { apiUrl: analysisApiUrl } = settings.ai.analysis;
   const lastBlock = currentChain.length > 0 ? currentChain[currentChain.length - 1] : null;
   const lastConfig = lastBlock?.data?.config || '';
   
@@ -236,10 +235,11 @@ const generateConfigFromPrompt = async (
   currentConfig: string,
   settings: AppSettings
 ): Promise<string> => {
-    if (!settings.ai.commandGeneration.enabled) {
+    const generationEnabled = settings.isAiGloballyEnabled && settings.ai.commandGeneration.enabled;
+    if (!generationEnabled) {
         throw new Error('AI 命令生成功能已被禁用。');
     }
-    const apiUrl = process.env.VITE_COMMAND_GENERATION_API_URL || settings.ai.commandGeneration.apiUrl;
+    const { apiUrl } = settings.ai.commandGeneration;
     
     // Simple mapping from our types to potential netmiko-style types for better prompts
     const syntaxType = {
@@ -303,10 +303,11 @@ const checkConfiguration = async (
     deviceType: Device['type'],
     settings: AppSettings
 ): Promise<string> => {
-    if (!settings.ai.configCheck.enabled) {
+    const checkEnabled = settings.isAiGloballyEnabled && settings.ai.configCheck.enabled;
+    if (!checkEnabled) {
         throw new Error('AI 配置体检功能已被禁用。');
     }
-    const apiUrl = process.env.VITE_CONFIG_CHECK_API_URL || settings.ai.configCheck.apiUrl;
+    const { apiUrl } = settings.ai.configCheck;
 
     const syntaxType = {
         'Router': 'Cisco IOS style',

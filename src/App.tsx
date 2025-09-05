@@ -10,7 +10,7 @@ import AddDeviceModal from './components/AddDeviceModal';
 import Login from './components/Login';
 import ConfirmationModal from './components/ConfirmationModal';
 import { Toaster, toast } from 'react-hot-toast';
-import { joinDeviceSessionAPI, leaveDeviceSessionAPI } from './utils/session';
+import { leaveDeviceSessionAPI } from './utils/session';
 import { createApiUrl } from './utils/apiUtils';
 import { getAIFailureMessage } from './utils/errorUtils';
 import AIStatusBanner from './components/AIStatusBanner';
@@ -19,24 +19,13 @@ import { AppError } from './utils/errors';
 
 
 const DEFAULT_SETTINGS: AppSettings = {
+  isAiGloballyEnabled: true,
   ai: {
     analysis: { enabled: true, apiUrl: '' },
     commandGeneration: { enabled: true, apiUrl: '' },
     configCheck: { enabled: true, apiUrl: '' },
   },
   agentApiUrl: '',
-};
-
-// Helper to get or create a unique session ID per browser tab
-const getSessionId = (): string => {
-    const SESSION_KEY = 'chaintrace_sessionId';
-    const existingId = sessionStorage.getItem(SESSION_KEY);
-    if (existingId) {
-        return existingId;
-    }
-    const newId = crypto.randomUUID();
-    sessionStorage.setItem(SESSION_KEY, newId);
-    return newId;
 };
 
 
@@ -54,7 +43,7 @@ const App: React.FC = () => {
   const [aiStatus, setAiStatus] = React.useState({ isOk: true, message: '', code: '' });
   const [isApiKeyModalOpen, setIsApiKeyModalOpen] = React.useState(false);
 
-  const [sessionId] = React.useState(getSessionId());
+  const sessionId = React.useMemo(() => crypto.randomUUID(), []);
   
   // Use a ref to track loading state to prevent re-fetching in polling
   const isLoadingRef = React.useRef(isLoading);
@@ -84,8 +73,20 @@ const App: React.FC = () => {
         throw new Error(`代理返回错误 (${response.status}): ${detail}`);
       }
       const data = await response.json();
-      setDevices(data.devices || []);
-      setBlockchains(data.blockchains || {});
+      
+      const newDevices = data.devices || [];
+      const newBlockchains = data.blockchains || {};
+      
+      setDevices(newDevices);
+      setBlockchains(newBlockchains);
+
+      // After updating data, ensure selectedDevice is also updated or cleared to prevent stale state.
+      setSelectedDevice(prevSelected => {
+        if (!prevSelected) return null;
+        const updatedDevice = newDevices.find((d: Device) => d.id === prevSelected.id);
+        return updatedDevice || null; // Return null if not found, which will navigate back to dashboard.
+      });
+
     } catch (error) {
       console.error("Failed to load data from agent", error);
       const errorMessage = error instanceof Error ? error.message : '发生未知错误。';
@@ -94,12 +95,16 @@ const App: React.FC = () => {
       if (errorMessage.toLowerCase().includes('failed to fetch')) {
           displayMessage = '网络请求失败。请检查代理是否正在运行，URL是否正确，以及是否存在CORS问题。';
       }
-
-      if (!isSilent) toast.error(`从代理加载数据失败: ${displayMessage}`, { duration: 6000 });
-
-      // Fallback to empty state if agent is down
-      setDevices([]);
-      setBlockchains({});
+      
+      // Only show toast and clear data on an initial, non-silent load failure.
+      // For silent background polls, we just log the error and keep the existing data.
+      if (!isSilent) {
+        toast.error(`从代理加载数据失败: ${displayMessage}`, { duration: 6000 });
+        // Fallback to empty state if agent is down on initial load
+        setDevices([]);
+        setBlockchains({});
+        setSelectedDevice(null);
+      }
     } finally {
       if (!isSilent) setIsLoading(false);
     }
@@ -188,23 +193,6 @@ const App: React.FC = () => {
     localStorage.setItem('chaintrace_settings', JSON.stringify(settings));
   }, [settings]);
 
-  // Centralized session management for in-app navigation
-  React.useEffect(() => {
-    if (selectedDevice && currentUser && settings.agentApiUrl) {
-      joinDeviceSessionAPI(selectedDevice.id, currentUser, sessionId, settings.agentApiUrl);
-    }
-    // This cleanup function will be called when `selectedDevice` changes 
-    // (e.g., user selects another device or goes back to dashboard),
-    // effectively leaving the session for the previous device.
-    return () => {
-      if (selectedDevice && settings.agentApiUrl) {
-        leaveDeviceSessionAPI(selectedDevice.id, sessionId, settings.agentApiUrl);
-      }
-    };
-  }, [selectedDevice, currentUser, sessionId, settings.agentApiUrl]);
-
-
-  // Failsafe session cleanup for when the user closes the browser tab or window
   React.useEffect(() => {
     const handleBeforeUnload = () => {
         if (selectedDevice && settings.agentApiUrl) {
@@ -310,7 +298,7 @@ const App: React.FC = () => {
     }
     
     setIsLoading(true);
-    const toastId = toast.loading(settings.ai.analysis.enabled ? '正在提交并请求 AI 分析...' : '正在提交...');
+    const toastId = toast.loading((settings.isAiGloballyEnabled && settings.ai.analysis.enabled) ? '正在提交并请求 AI 分析...' : '正在提交...');
     
     try {
       const currentChain = blockchains[deviceId] || [];
@@ -337,7 +325,7 @@ const App: React.FC = () => {
 
       await fetchDataFromAgent(); // Refresh data from server for immediate feedback
       
-      if (settings.ai.analysis.enabled) {
+      if (settings.isAiGloballyEnabled && settings.ai.analysis.enabled) {
           if (aiSuccess) {
             toast.success('配置已成功记录！', { id: toastId });
           } else {
@@ -491,6 +479,7 @@ const App: React.FC = () => {
             onResetData={handleResetData}
             onDeleteDevice={handleDeleteDevice}
             onOpenAddDeviceModal={() => setIsAddDeviceModalOpen(true)}
+            currentUser={currentUser}
           />
         )}
       </main>
@@ -499,6 +488,7 @@ const App: React.FC = () => {
         onClose={() => setIsSettingsModalOpen(false)}
         settings={settings}
         onUpdateSettings={handleUpdateSettings}
+        currentUser={currentUser}
       />
       <AddDeviceModal
         isOpen={isAddDeviceModalOpen}

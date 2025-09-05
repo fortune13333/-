@@ -253,7 +253,7 @@ def add_block(device_id: str, payload: NewBlockPayload):
         prev_hash = last_block['hash']
         timestamp = datetime.datetime.utcnow().isoformat() + "Z"
         
-        new_block_data = {"deviceId": device_id, "version": new_version, **payload.dict()}
+        new_block_data = {"deviceId": device_id, "version": new_version, **payload.model_dump()}
         new_hash = _calculate_block_hash(new_block_data, new_index, timestamp, prev_hash)
         
         new_block = {
@@ -330,7 +330,7 @@ def join_device_session(device_id: str, payload: SessionPayload):
         # Remove any existing session with the same session ID to handle refreshes.
         updated_sessions = [s for s in current_sessions if s['sessionId'] != payload.sessionId]
         # Add the new/updated session.
-        updated_sessions.append(payload.dict())
+        updated_sessions.append(payload.model_dump())
         ACTIVE_SESSIONS[device_id] = updated_sessions
     
     user_list = [f"{s['username']}({s['sessionId'][-4:]})" for s in ACTIVE_SESSIONS.get(device_id, [])]
@@ -341,15 +341,20 @@ def join_device_session(device_id: str, payload: SessionPayload):
 def leave_device_session_endpoint(device_id: str, session_id: str):
     with sessions_lock:
         if device_id in ACTIVE_SESSIONS:
-            initial_count = len(ACTIVE_SESSIONS[device_id])
-            ACTIVE_SESSIONS[device_id] = [s for s in ACTIVE_SESSIONS[device_id] if s['sessionId'] != session_id]
-            
-            if initial_count > len(ACTIVE_SESSIONS.get(device_id, [])):
-                 logging.info(f"Session {session_id} left {device_id}.")
+            # Create the new list without the leaving session
+            current_sessions = ACTIVE_SESSIONS[device_id]
+            updated_sessions = [s for s in current_sessions if s['sessionId'] != session_id]
 
-            if not ACTIVE_SESSIONS[device_id]:
-                del ACTIVE_SESSIONS[device_id]
-                logging.info(f"All sessions for device '{device_id}' closed. Removing key.")
+            # Only log and modify if a session was actually removed
+            if len(updated_sessions) < len(current_sessions):
+                logging.info(f"Session {session_id} left '{device_id}'.")
+                
+                # If the list is now empty, remove the key entirely. Otherwise, update it.
+                if not updated_sessions:
+                    del ACTIVE_SESSIONS[device_id]
+                    logging.info(f"All sessions for device '{device_id}' closed. Removing key.")
+                else:
+                    ACTIVE_SESSIONS[device_id] = updated_sessions
     return {}
 
 if __name__ == "__main__":

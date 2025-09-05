@@ -8,7 +8,7 @@ import { verifyChain } from '../utils/crypto';
 import { toast } from 'react-hot-toast';
 import { DownloadIcon, PlusIcon, SparklesIcon, BrainIcon } from './AIIcons';
 import { geminiService } from '../services/geminiService';
-import { getActiveSessionsAPI } from '../utils/session';
+import { joinDeviceSessionAPI, leaveDeviceSessionAPI, getActiveSessionsAPI } from '../utils/session';
 import { createApiUrl } from '../utils/apiUtils';
 import { getAIFailureMessage } from '../utils/errorUtils';
 
@@ -72,35 +72,32 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
 
   const [otherViewingUsers, setOtherViewingUsers] = useState<SessionUser[]>([]);
 
-  // Effect for polling other active sessions
+  // Effect for Centralized, API-based session management
   useEffect(() => {
     if (!settings.agentApiUrl) {
         setOtherViewingUsers([]);
         return; // Collaboration feature is disabled if no agent is configured
     }
 
-    const fetchViewers = async () => {
-        try {
-            const viewers = await getActiveSessionsAPI(device.id, settings.agentApiUrl!);
-            // Filter out the current user's session to only show others
-            setOtherViewingUsers(viewers.filter(u => u.sessionId !== sessionId));
-        } catch (error) {
-            console.error("Failed to poll for active sessions:", error);
-            setOtherViewingUsers([]); // Clear viewers on error
-        }
-    };
+    // 1. Initial join: Register presence immediately on component mount.
+    joinDeviceSessionAPI(device.id, currentUser.username, sessionId, settings.agentApiUrl);
 
-    // Initial fetch to show viewers immediately on load
-    fetchViewers();
+    // 2. Set up polling to get other viewers AND send a heartbeat.
+    const intervalId = setInterval(async () => {
+        // Heartbeat: Re-join the session periodically to handle server restarts.
+        joinDeviceSessionAPI(device.id, currentUser.username, sessionId, settings.agentApiUrl);
+        
+        // Fetch other viewers
+        const viewers = await getActiveSessionsAPI(device.id, settings.agentApiUrl!);
+        setOtherViewingUsers(viewers.filter(u => u.sessionId !== sessionId));
+    }, 3000); // Poll every 3 seconds
 
-    // Set up polling to get live updates on who is viewing
-    const intervalId = setInterval(fetchViewers, 3000); // Poll every 3 seconds
-
-    // Cleanup function: clear the interval when the component unmounts or dependencies change
+    // 3. Cleanup function: leave the session and clear the interval.
     return () => {
       clearInterval(intervalId);
+      leaveDeviceSessionAPI(device.id, sessionId, settings.agentApiUrl!);
     };
-  }, [device.id, sessionId, settings.agentApiUrl]);
+  }, [device.id, currentUser.username, sessionId, settings.agentApiUrl]);
   
 
   useEffect(() => {
@@ -308,14 +305,16 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
                         </option>
                     ))}
                 </select>
-                <button
-                    onClick={onOpenAddDeviceModal}
-                    className="flex-shrink-0 bg-zinc-800 hover:bg-cyan-600/50 text-zinc-300 hover:text-cyan-300 font-medium p-2 rounded-md transition-colors duration-200"
-                    aria-label="添加新设备"
-                    title="添加新设备"
-                >
-                    <PlusIcon />
-                </button>
+                {currentUser.role === 'admin' && (
+                  <button
+                      onClick={onOpenAddDeviceModal}
+                      className="flex-shrink-0 bg-zinc-800 hover:bg-cyan-600/50 text-zinc-300 hover:text-cyan-300 font-medium p-2 rounded-md transition-colors duration-200"
+                      aria-label="添加新设备"
+                      title="添加新设备"
+                  >
+                      <PlusIcon />
+                  </button>
+                )}
             </div>
           </div>
           <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2">
@@ -350,7 +349,7 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
                <div className="flex justify-between items-center mb-2">
                  <label htmlFor="config" className="block text-sm font-medium text-zinc-300">配置文本</label>
                  <div className="flex items-center gap-2">
-                    {settings.ai.configCheck.enabled && (
+                    {settings.isAiGloballyEnabled && settings.ai.configCheck.enabled && (
                         <button
                             type="button"
                             onClick={handleConfigCheck}
@@ -396,7 +395,7 @@ const DeviceDetails: React.FC<DeviceDetailsProps> = ({
                 </div>
             )}
             
-            {settings.ai.commandGeneration.enabled && (
+            {settings.isAiGloballyEnabled && settings.ai.commandGeneration.enabled && (
                 <div className="mb-6 bg-zinc-950/50 p-3 rounded-md">
                     <label htmlFor="ai-prompt" className="flex items-center gap-2 text-sm font-medium text-zinc-300 mb-2">
                         <SparklesIcon className="h-5 w-5 text-cyan-400" />

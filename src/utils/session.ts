@@ -1,21 +1,21 @@
-import { User, SessionUser } from '../types';
+import { SessionUser } from '../types';
 import { createApiUrl } from './apiUtils';
 
 /**
  * Registers the current user's session with the agent for a specific device.
  * @param deviceId The ID of the device being viewed.
- * @param user The current User object.
+ * @param username The username of the current user.
  * @param sessionId The unique ID for the current browser tab session.
  * @param agentApiUrl The base URL of the agent API.
  */
-export const joinDeviceSessionAPI = async (deviceId: string, user: User, sessionId: string, agentApiUrl: string | undefined) => {
-    if (!agentApiUrl || !user) return;
+export const joinDeviceSessionAPI = async (deviceId: string, username: string, sessionId: string, agentApiUrl: string | undefined) => {
+    if (!agentApiUrl || !username) return;
     try {
         const url = createApiUrl(agentApiUrl, `/api/sessions/${deviceId}`);
         await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username: user.username, sessionId }),
+            body: JSON.stringify({ username, sessionId }),
         });
     } catch (e) { 
         console.error('Failed to join session via API', e); 
@@ -51,7 +51,7 @@ export const leaveDeviceSessionAPI = async (deviceId: string, sessionId: string,
 export const getActiveSessionsAPI = async (deviceId: string, agentApiUrl: string): Promise<SessionUser[]> => {
     if (!agentApiUrl) return [];
     try {
-        const url = createApiUrl(agentApiUrl, `/api/sessions/${deviceId}`);
+        const url = createApiUrl(agentApiUrl, `/api/sessions/${deviceId}?t=${Date.now()}`);
         const response = await fetch(url, { cache: 'no-cache' });
         if (!response.ok) return [];
         return await response.json();
